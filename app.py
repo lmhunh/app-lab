@@ -152,4 +152,11 @@ else:
                     if st.form_submit_button("Xác nhận hoàn trả"):
                         cell = sheet_thietbi.find(dev_ret)
                         sheet_thietbi.update_cell(cell.row, 3, "Sẵn sàng")
-                        sheet_thietbi.
+                        sheet_thietbi.update_cell(cell.row, 4, "") # Xóa Người sử dụng
+                        
+                        now_s = datetime.now().strftime("%d/%m/%Y %H:%M")
+                        sheet_lichsu.append_row([now_s, st.session_state['ho_ten'], "Trả", dev_ret])
+                        st.success(f"✅ Đã trả {dev_ret}")
+                        st.rerun()
+        else:
+            st.error(f"❌ Không tìm thấy cột '{user_col}' trong Google Sheets!")
