@@ -7,7 +7,7 @@ import time
 # ==========================================
 # 1. CẤU HÌNH & KẾT NỐI (GMT+7)
 # ==========================================
-st.set_page_config(page_title="Hệ thống Lab (Smart Sync)", page_icon="⏱️", layout="wide")
+st.set_page_config(page_title="Hệ thống Lab (Smart UI)", page_icon="⏱️", layout="wide")
 
 VN_TZ = timezone(timedelta(hours=7))
 
@@ -133,7 +133,7 @@ else:
         if not df_tb.empty:
             st.dataframe(df_tb, use_container_width=True, hide_index=True)
 
-    # --- TAB 2: KIỂM TRA TRẠNG THÁI & MA TRẬN ẨN ---
+    # --- TAB 2: KIỂM TRA TRẠNG THÁI & ĐẶT LỊCH ---
     with tab2:
         st.subheader("🔍 Kiểm tra trạng thái thiết bị")
         
@@ -152,7 +152,7 @@ else:
                     <h1 style='margin: 0; padding-right: 20px; font-size: 3rem;'>🟢</h1>
                     <div>
                         <h3 style='margin: 0;'>{view_mode} đang SẴN SÀNG!</h3>
-                        <p style='margin: 0; font-size: 1.1rem;'>Thiết bị hiện đang trống. Bạn có thể mở form bên dưới để mượn ngay.</p>
+                        <p style='margin: 0; font-size: 1.1rem;'>Thiết bị hiện đang trống. Bạn có thể mở form bên dưới để sử dụng ngay.</p>
                     </div>
                 </div>
                 """, unsafe_allow_html=True)
@@ -170,7 +170,7 @@ else:
         st.write("") 
 
         # 2. MA TRẬN LỊCH ẨN
-        with st.expander("📅 Bấm vào đây để mở Ma trận lịch (Kiểm tra giờ rảnh)", expanded=False):
+        with st.expander("📅 Bấm vào đây để mở Ma trận lịch (Kiểm tra giờ rảnh của máy này)", expanded=False):
             df_matrix_data = df_lich_view[df_lich_view['Thiết bị'] == view_mode] if not df_lich_view.empty else pd.DataFrame()
 
             matrix = pd.DataFrame("🟢 Trống", index=khung_gio_24h, columns=days_7)
@@ -209,95 +209,99 @@ else:
             
         st.markdown("---")
         
-        # 3. FORM ĐĂNG KÝ VÀ MƯỢN ĐỒNG BỘ
-        st.markdown(f"### 📝 Form Đăng ký / Mượn: **{view_mode}**")
+        # 3. FORM TỪ GIỜ ... ĐẾN GIỜ ...
+        st.markdown(f"### 📝 Thời gian sử dụng thiết bị: **{view_mode}**")
         with st.form("smart_booking"):
-            st.markdown("##### 1️⃣ Đặt lịch trước (Dành cho kế hoạch tương lai)")
-            c1, c2, c3 = st.columns(3)
-            with c1: d_pick = st.date_input("Chọn ngày", min_value=today)
-            with c2: g_picks = st.multiselect("Chọn các khung giờ", khung_gio_24h)
-            with c3: note = st.text_input("Mục đích (VD: Đo phổ ZnO)")
+            c1, c2, c3, c4 = st.columns([1.5, 1, 1, 2])
             
-            st.markdown("##### 2️⃣ Mượn ngay bây giờ (Sử dụng luôn)")
             current_h = get_now().hour
-            # Tạo danh sách các giờ từ hiện tại cho đến cuối ngày để dự kiến trả
-            end_options = [f"{i:02d}:00" for i in range(current_h + 1, 24)] + ["24:00"]
-            if current_h >= 24: end_options = ["24:00"]
+            idx_start = current_h if current_h < 24 else 23
             
-            c4, _ = st.columns([1, 2])
-            with c4:
-                end_time = st.selectbox("⏳ Dự kiến trả máy lúc:", end_options)
-                
+            with c1: 
+                d_pick = st.date_input("🗓️ Chọn ngày", min_value=today)
+            with c2: 
+                time_start = st.selectbox("⏳ Từ lúc:", [f"{i:02d}:00" for i in range(24)], index=idx_start)
+            with c3: 
+                time_end = st.selectbox("⏳ Đến lúc:", [f"{i:02d}:00" for i in range(1, 25)], index=idx_start)
+            with c4: 
+                note = st.text_input("Mục đích (VD: Đo phổ ZnO)")
+            
             st.markdown("---")
             c_sub, c_now = st.columns(2)
-            with c_sub: btn_book = st.form_submit_button("🔥 Xác nhận Đặt lịch (Phần 1)")
-            with c_now: btn_use_now = st.form_submit_button("⚡ Mượn ngay (Phần 2)")
+            with c_sub: btn_book = st.form_submit_button("📅 Xác nhận Đặt lịch (Tương lai)")
+            with c_now: btn_use_now = st.form_submit_button("⚡ Mượn ngay (Hiện tại)")
             
-            # --- XỬ LÝ ĐẶT LỊCH TRƯỚC ---
-            if btn_book:
+            # Hàm xử lý chung lấy khoảng thời gian
+            start_h = int(time_start.split(":")[0])
+            end_h = 24 if time_end == "24:00" else int(time_end.split(":")[0])
+            
+            if btn_book or btn_use_now:
+                if end_h <= start_h:
+                    st.error("❌ Lỗi: Giờ kết thúc phải lớn hơn giờ bắt đầu!")
+                    st.stop()
+                
+                # Tạo danh sách các giờ sẽ bị chiếm trên ma trận (VD: từ 14->16 = ["14:00", "15:00"])
+                g_picks = [f"{h:02d}:00" for h in range(start_h, end_h)]
                 d_str = d_pick.strftime("%d/%m/%Y")
                 current_time = get_now()
                 today_str = current_time.strftime("%d/%m/%Y")
-                current_hour = current_time.hour
                 
-                if d_str == today_str:
-                    past_hours = [g for g in g_picks if int(g.split(":")[0]) <= current_hour]
-                    if past_hours:
-                        st.error(f"⏳ Lỗi: Không thể đặt giờ quá khứ ({', '.join(past_hours)}). Hãy chọn từ {current_hour + 1}:00!")
+                sheet_lich_rt = sh.worksheet("LichTuan")
+                df_lich_rt = pd.DataFrame(sheet_lich_rt.get_all_records())
+                
+                # --- XỬ LÝ ĐẶT LỊCH ---
+                if btn_book:
+                    if d_str == today_str and start_h < current_time.hour:
+                        st.error(f"⏳ Lỗi: Không thể đặt giờ quá khứ. Hãy chọn Từ lúc: {current_time.hour}:00 trở đi!")
                         st.stop()
+                    
+                    conflicts = [g for g in g_picks if not df_lich_rt[(df_lich_rt['Ngày'] == d_str) & (df_lich_rt['Ca làm việc'] == g) & (df_lich_rt['Thiết bị'] == view_mode)].empty]
+                    if conflicts: 
+                        st.error(f"❌ Rất tiếc, {view_mode} đã bị người khác đặt vào lúc: {', '.join(conflicts)}")
+                    else:
+                        for g in g_picks:
+                            sheet_lichtuan.append_row([d_str, g, st.session_state['ho_ten'], view_mode, note])
+                        sheet_lichsu.append_row([get_now().strftime("%d/%m/%Y %H:%M:%S"), st.session_state['ho_ten'], f"Đặt lịch ({d_str} {time_start}->{time_end})", view_mode])
+                        st.success("✅ Đã đặt lịch thành công. Ma trận đã được đồng bộ!")
+                        load_data.clear() 
+                        st.rerun()
                 
-                sheet_lich_rt = sh.worksheet("LichTuan")
-                df_lich_rt = pd.DataFrame(sheet_lich_rt.get_all_records())
-                conflicts = [g for g in g_picks if not df_lich_rt[(df_lich_rt['Ngày'] == d_str) & (df_lich_rt['Ca làm việc'] == g) & (df_lich_rt['Thiết bị'] == view_mode)].empty]
-                
-                if conflicts: st.error(f"❌ Rất tiếc, {view_mode} đã bị đặt vào lúc: {', '.join(conflicts)}")
-                elif not g_picks: st.warning("Vui lòng chọn khung giờ!")
-                else:
-                    for g in g_picks:
-                        sheet_lichtuan.append_row([d_str, g, st.session_state['ho_ten'], view_mode, note])
-                        sheet_lichsu.append_row([get_now().strftime("%d/%m/%Y %H:%M:%S"), st.session_state['ho_ten'], f"Đặt lịch ({d_str} {g})", view_mode])
-                    st.success("✅ Đã đặt lịch thành công!")
-                    load_data.clear() 
-                    st.rerun()
-            
-            # --- XỬ LÝ MƯỢN NGAY (CẬP NHẬT MA TRẬN) ---
-            if btn_use_now:
-                current_time = get_now()
-                d_str = current_time.strftime("%d/%m/%Y")
-                current_hour = current_time.hour
-                
-                # Tính toán các khung giờ sẽ bị "chiếm" trên ma trận
-                end_hour = 24 if end_time == "24:00" else int(end_time.split(":")[0])
-                slots_to_book = [f"{h:02d}:00" for h in range(current_hour, end_hour)]
-                
-                sheet_lich_rt = sh.worksheet("LichTuan")
-                df_lich_rt = pd.DataFrame(sheet_lich_rt.get_all_records())
-                
-                # Rà soát xem trong số các giờ định mượn, có ai chặn trước chưa
-                conflicts = []
-                for g in slots_to_book:
-                    conflict = df_lich_rt[(df_lich_rt['Ngày'] == d_str) & (df_lich_rt['Ca làm việc'] == g) & (df_lich_rt['Thiết bị'] == view_mode)]
-                    if not conflict.empty and conflict.iloc[0]['Người sử dụng'] != st.session_state['ho_ten']:
-                        conflicts.append(g)
+                # --- XỬ LÝ MƯỢN NGAY ---
+                if btn_use_now:
+                    if d_str != today_str:
+                        st.error("⚠️ Lỗi: Tính năng 'Mượn ngay' chỉ áp dụng cho hôm nay. Nếu bạn mượn ngày khác, hãy bấm 'Xác nhận Đặt lịch'.")
+                        st.stop()
+                    if start_h > current_time.hour:
+                        st.error(f"⚠️ Lỗi: Chưa tới giờ mượn ({time_start}). Nếu bạn muốn giữ chỗ, hãy bấm 'Xác nhận Đặt lịch'.")
+                        st.stop()
+
+                    # Cắt bỏ các giờ trong quá khứ nếu người dùng lỡ chọn giờ bắt đầu < giờ hiện tại
+                    actual_start = max(start_h, current_time.hour)
+                    g_picks_actual = [f"{h:02d}:00" for h in range(actual_start, end_h)]
+                    
+                    conflicts = []
+                    for g in g_picks_actual:
+                        conflict = df_lich_rt[(df_lich_rt['Ngày'] == d_str) & (df_lich_rt['Ca làm việc'] == g) & (df_lich_rt['Thiết bị'] == view_mode)]
+                        if not conflict.empty and conflict.iloc[0]['Người sử dụng'] != st.session_state['ho_ten']:
+                            conflicts.append(g)
+                            
+                    if conflicts:
+                        st.error(f"⚠️ Không thể mượn liên tục đến {time_end}! {view_mode} đã bị đặt lịch vào lúc: {', '.join(conflicts)}.")
+                    else:
+                        cell = sheet_thietbi.find(view_mode)
+                        sheet_thietbi.update_cell(cell.row, 3, "Đang mượn")
+                        sheet_thietbi.update_cell(cell.row, 4, st.session_state['ho_ten'])
                         
-                if conflicts:
-                    st.error(f"⚠️ Không thể mượn liên tục đến {end_time}! Máy đã bị người khác đặt lịch vào lúc: {', '.join(conflicts)}.")
-                else:
-                    # 1. Cập nhật trạng thái "Đang mượn"
-                    cell = sheet_thietbi.find(view_mode)
-                    sheet_thietbi.update_cell(cell.row, 3, "Đang mượn")
-                    sheet_thietbi.update_cell(cell.row, 4, st.session_state['ho_ten'])
-                    
-                    # 2. GHI ĐÈ LÊN MA TRẬN LỊCH
-                    for g in slots_to_book:
-                        already = df_lich_rt[(df_lich_rt['Ngày'] == d_str) & (df_lich_rt['Ca làm việc'] == g) & (df_lich_rt['Thiết bị'] == view_mode) & (df_lich_rt['Người sử dụng'] == st.session_state['ho_ten'])]
-                        if already.empty:
-                            sheet_lichtuan.append_row([d_str, g, st.session_state['ho_ten'], view_mode, note if note else "Mượn trực tiếp"])
-                    
-                    sheet_lichsu.append_row([current_time.strftime("%d/%m/%Y %H:%M:%S"), st.session_state['ho_ten'], f"Mượn trực tiếp (đến {end_time})", view_mode])
-                    st.success(f"✅ Đã ghi nhận bạn mượn {view_mode} đến {end_time}. Ma trận đã được đồng bộ!")
-                    load_data.clear() 
-                    st.rerun()
+                        # Ghi vào ma trận những giờ chưa có tên người mượn
+                        for g in g_picks_actual:
+                            already = df_lich_rt[(df_lich_rt['Ngày'] == d_str) & (df_lich_rt['Ca làm việc'] == g) & (df_lich_rt['Thiết bị'] == view_mode) & (df_lich_rt['Người sử dụng'] == st.session_state['ho_ten'])]
+                            if already.empty:
+                                sheet_lichtuan.append_row([d_str, g, st.session_state['ho_ten'], view_mode, note if note else "Mượn trực tiếp"])
+                        
+                        sheet_lichsu.append_row([get_now().strftime("%d/%m/%Y %H:%M:%S"), st.session_state['ho_ten'], f"Mượn trực tiếp ({time_start}->{time_end})", view_mode])
+                        st.success(f"✅ Đã ghi nhận bạn mượn {view_mode} đến {time_end}. Ma trận đã được phủ đỏ!")
+                        load_data.clear() 
+                        st.rerun()
 
     # --- TAB 3 & 4 (GIỮ NGUYÊN) ---
     with tab3:
