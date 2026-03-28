@@ -7,7 +7,7 @@ import time
 # ==========================================
 # 1. CẤU HÌNH & KẾT NỐI (BỌC THÉP CHỐNG LỖI 429)
 # ==========================================
-st.set_page_config(page_title="Hệ thống Lab (Pro Version)", page_icon="📅", layout="wide")
+st.set_page_config(page_title="Hệ thống Lab (Static Matrix)", page_icon="📅", layout="wide")
 
 VN_TZ = timezone(timedelta(hours=7))
 
@@ -24,7 +24,6 @@ def parse_time(t_str):
     except: return None
     return None
 
-# ĐÂY LÀ CHÌA KHÓA CHỐNG 429: Cache toàn bộ kết nối và Object Sheets (Lưu 1 tiếng)
 @st.cache_resource(ttl=3600)
 def init_google_sheets():
     try:
@@ -33,7 +32,6 @@ def init_google_sheets():
             creds_dict["private_key"] = creds_dict["private_key"].strip().replace("\\n", "\n")
         gc = gspread.service_account_from_dict(creds_dict)
         sh = gc.open("Quan_ly_lab") 
-        # Lấy tất cả các sheet 1 lần duy nhất và cất vào Cache
         return {
             "ThietBi": sh.worksheet("ThietBi"),
             "TaiKhoan": sh.worksheet("TaiKhoan"),
@@ -44,20 +42,18 @@ def init_google_sheets():
         st.error(f"❌ Lỗi kết nối Google Sheets: {e}")
         st.stop()
 
-# Gọi dữ liệu từ Cache Két Sắt
 sheets = init_google_sheets()
 sheet_thietbi = sheets["ThietBi"]
 sheet_taikhoan = sheets["TaiKhoan"]
 sheet_lichsu = sheets["LichSu"]
 sheet_lichtuan = sheets["LichTuan"]
 
-# Đọc bảng dữ liệu (Lưu Cache 15 giây)
 @st.cache_data(ttl=15, show_spinner=False)
 def load_data(sheet_name):
     try:
         return pd.DataFrame(sheets[sheet_name].get_all_records())
     except gspread.exceptions.APIError:
-        time.sleep(2) # Giảm xóc 2 giây nếu Google quá tải
+        time.sleep(2)
         return pd.DataFrame(sheets[sheet_name].get_all_records())
 
 # ==========================================
@@ -145,7 +141,7 @@ else:
     today = get_now().date()
     days_7 = [(today + timedelta(days=i)).strftime("%d/%m/%Y") for i in range(7)]
 
-    tab1, tab2, tab3, tab4 = st.tabs(["📊 Trạng thái", "📅 Lịch Calendar & Đặt lịch", "🕒 Lịch sử", "🔄 Trả thiết bị"])
+    tab1, tab2, tab3, tab4 = st.tabs(["📊 Trạng thái", "📅 Lịch & Đặt lịch", "🕒 Lịch sử", "🔄 Trả thiết bị"])
 
     # --- TAB 1: TRẠNG THÁI ---
     with tab1:
@@ -160,7 +156,7 @@ else:
         with c_filter:
             view_mode = st.selectbox("Chọn thiết bị để xem lịch:", all_devices if all_devices else ["Chưa có dữ liệu"])
         
-        # Thẻ trạng thái nhanh
+        # Thẻ trạng thái
         if not df_tb.empty and view_mode in df_tb['Tên'].values:
             current_status = df_tb[df_tb['Tên'] == view_mode].iloc[0]['Trạng thái']
             current_user = df_tb[df_tb['Tên'] == view_mode].iloc[0].get('Người sử dụng', '')
@@ -180,14 +176,15 @@ else:
 
         st.write("") 
 
-        # Ma trận Google Calendar Style
-        with st.expander("👉 Mở Lịch tuần (Click vào ô để xem chi tiết)", expanded=True):
+        # Ma trận Hiển thị tĩnh (Không tương tác)
+        with st.expander("👉 Mở Lịch tuần (Xem lịch tổng quan)", expanded=True):
             df_matrix_data = df_lich_view[df_lich_view['Thiết bị'] == view_mode] if not df_lich_view.empty else pd.DataFrame()
             matrix = pd.DataFrame(" ", index=khung_gio_24h, columns=days_7)
             
             if not df_matrix_data.empty:
                 for _, r in df_matrix_data.iterrows():
                     ca = str(r['Ca làm việc'])
+                    nguoi_dung = str(r['Người sử dụng'])
                     if " - " in ca and str(r['Ngày']) in days_7:
                         try:
                             s_str, e_str = ca.split(" - ")
@@ -199,60 +196,32 @@ else:
                                 block_end = dt_time(h, 59)
                                 
                                 if s_time <= block_end and block_start <= e_time:
-                                    block_text = f"🔷 {s_time.strftime('%H:%M')} - {e_time.strftime('%H:%M')}"
+                                    # Hiển thị luôn tên người mượn lên khối thời gian để dễ nhìn
+                                    block_text = f"🔷 {s_time.strftime('%H:%M')}-{e_time.strftime('%H:%M')} ({nguoi_dung})"
                                     current_val = matrix.at[f"{h:02d}:00", str(r['Ngày'])]
                                     if "🔷" in current_val:
-                                        matrix.at[f"{h:02d}:00", str(r['Ngày'])] += f"\n🔷 {s_time.strftime('%H:%M')}-{e_time.strftime('%H:%M')}"
+                                        matrix.at[f"{h:02d}:00", str(r['Ngày'])] += f"\n{block_text}"
                                     else:
                                         matrix.at[f"{h:02d}:00", str(r['Ngày'])] = block_text
                         except: pass
 
             def style_calendar(val):
-                if "🔷" in val: return 'background-color: #e8f0fe; color: #1967d2; font-weight: bold; border-left: 4px solid #1a73e8;'
+                if "🔷" in val: return 'background-color: #e8f0fe; color: #1967d2; font-weight: bold; border-left: 4px solid #1a73e8; white-space: pre-wrap;'
                 return 'background-color: white; color: black;'
             
-            event = st.dataframe(
+            # Khóa on_select lại, bảng giờ chỉ để nhìn
+            st.dataframe(
                 matrix.style.map(style_calendar),
                 use_container_width=True,
-                height=400,
-                on_select="rerun",
-                selection_mode="single-cell"
+                height=450
             )
-
-            if event and len(event.selection.rows) > 0 and len(event.selection.columns) > 0:
-                r_idx = event.selection.rows[0]
-                c_idx = event.selection.columns[0]
-                s_hour_str = matrix.index[r_idx]
-                s_date = matrix.columns[c_idx]
-                
-                s_hour = int(s_hour_str.split(":")[0])
-                block_start = dt_time(s_hour, 0)
-                block_end = dt_time(s_hour, 59)
-                
-                overlapping = []
-                if not df_matrix_data.empty:
-                    df_day = df_matrix_data[df_matrix_data['Ngày'] == s_date]
-                    for _, r in df_day.iterrows():
-                        try:
-                            s_t = parse_time(r['Ca làm việc'].split(" - ")[0])
-                            e_t = parse_time(r['Ca làm việc'].split(" - ")[1])
-                            if s_t <= block_end and block_start <= e_t:
-                                overlapping.append(r)
-                        except: pass
-                
-                if overlapping:
-                    st.error(f"📅 **Chi tiết lịch ngày {s_date} (Quanh mốc {s_hour_str}):**")
-                    for r in overlapping:
-                        st.write(f"- ⏱️ **{r['Ca làm việc']}** | 👤 **{r['Người sử dụng']}** | 📝 *{r['Mục đích']}*")
-                else:
-                    st.success(f"🟢 Khung {s_hour_str} ngày {s_date} hiện đang trống!")
             
         st.markdown("---")
         
         # Form Đặt Lịch
         st.markdown(f"### 📝 Đặt lịch thiết bị: **{view_mode}**")
         with st.form("smart_booking"):
-            st.info("💡 **Mẹo:** Bạn có thể gõ trực tiếp thời gian (Ví dụ: `14:30`, `1430` hoặc `9`).")
+            st.info("💡 **Mẹo:** Gõ trực tiếp thời gian bằng số (Ví dụ: `14:30`, `1430` hoặc `9`).")
             c1, c2, c3, c4 = st.columns([1.5, 1, 1, 2])
             
             with c1: 
@@ -262,4 +231,93 @@ else:
                 if not is_now:
                     t_start_input = st.text_input("⏳ Từ lúc:", placeholder="VD: 14:30")
                 else:
-                    t_start_input = get_
+                    t_start_input = get_now().strftime('%H:%M')
+                    st.text_input("⏳ Từ lúc (Tự động):", value=t_start_input, disabled=True)
+            with c3: 
+                t_end_input = st.text_input("⏳ Đến lúc:", placeholder="VD: 16:45", value=(get_now() + timedelta(hours=1)).strftime('%H:%M'))
+            with c4: 
+                note = st.text_input("Mục đích (VD: Chạy mẫu Cu2O)")
+            
+            st.markdown("---")
+            btn_submit = st.form_submit_button("🔥 Xác nhận Lịch")
+            
+            if btn_submit:
+                t_start = parse_time(t_start_input)
+                t_end = parse_time(t_end_input)
+
+                if not t_start:
+                    st.error("❌ Lỗi: Thời gian 'Từ lúc' không hợp lệ! Vui lòng gõ định dạng HH:MM (VD: 14:30).")
+                    st.stop()
+                if not t_end:
+                    st.error("❌ Lỗi: Thời gian 'Đến lúc' không hợp lệ!")
+                    st.stop()
+
+                d_str = d_pick.strftime("%d/%m/%Y")
+                today_str = get_now().strftime("%d/%m/%Y")
+                
+                if t_end <= t_start:
+                    st.error("❌ Lỗi: Giờ kết thúc phải lớn hơn giờ bắt đầu!")
+                    st.stop()
+                
+                if d_str == today_str and t_start < get_now().time() and not is_now:
+                    st.error(f"⏳ Lỗi: Không thể đặt giờ trong quá khứ!")
+                    st.stop()
+                
+                df_lich_rt = pd.DataFrame(sheet_lichtuan.get_all_records())
+                
+                conflict_found = []
+                if not df_lich_rt.empty:
+                    df_day_device = df_lich_rt[(df_lich_rt['Ngày'] == d_str) & (df_lich_rt['Thiết bị'] == view_mode)]
+                    for _, row in df_day_device.iterrows():
+                        try:
+                            exist_start = parse_time(row['Ca làm việc'].split(" - ")[0])
+                            exist_end = parse_time(row['Ca làm việc'].split(" - ")[1])
+                            
+                            if t_start < exist_end and exist_start < t_end:
+                                conflict_found.append(f"{row['Ca làm việc']} (bởi {row['Người sử dụng']})")
+                        except: pass
+
+                if conflict_found: 
+                    st.error(f"❌ Rất tiếc, {view_mode} đã kẹt lịch vào lúc: {', '.join(conflict_found)}")
+                else:
+                    ca_lam_viec_str = f"{t_start.strftime('%H:%M')} - {t_end.strftime('%H:%M')}"
+                    sheet_lichtuan.append_row([d_str, ca_lam_viec_str, st.session_state['ho_ten'], view_mode, note])
+                    
+                    if is_now and d_str == today_str:
+                        cell = sheet_thietbi.find(view_mode)
+                        sheet_thietbi.update_cell(cell.row, 3, "Đang mượn")
+                        sheet_thietbi.update_cell(cell.row, 4, st.session_state['ho_ten'])
+                        sheet_lichsu.append_row([get_now().strftime("%d/%m/%Y %H:%M:%S"), st.session_state['ho_ten'], f"Mượn trực tiếp ({ca_lam_viec_str})", view_mode])
+                        st.success(f"✅ Đã ghi nhận mượn {view_mode}. Lịch sẽ tự động thu hồi lúc {t_end.strftime('%H:%M')}.")
+                    else:
+                        sheet_lichsu.append_row([get_now().strftime("%d/%m/%Y %H:%M:%S"), st.session_state['ho_ten'], f"Đặt lịch ({d_str} {ca_lam_viec_str})", view_mode])
+                        st.success("✅ Đã chốt lịch thành công lên Calendar!")
+                        
+                    load_data.clear() 
+                    st.rerun()
+
+    # --- TAB 3 & 4 ---
+    with tab3:
+        st.subheader("Lịch sử hoạt động")
+        df_h = load_data("LichSu")
+        if not df_h.empty: st.dataframe(df_h.iloc[::-1], use_container_width=True, hide_index=True)
+
+    with tab4:
+        st.subheader("🔄 Hoàn trả thủ công & Ghi chú tình trạng")
+        if "Người sử dụng" in df_tb.columns:
+            my_list = df_tb[df_tb["Người sử dụng"] == st.session_state['ho_ten']]['Tên'].tolist()
+            if not my_list: st.success("Bạn hiện không giữ thiết bị nào.")
+            else:
+                with st.form("return_form"):
+                    dev_ret = st.selectbox("Thiết bị đang giữ", my_list)
+                    return_note = st.text_input("Ghi chú sau khi dùng (VD: Máy chạy tốt, Đã vệ sinh...)")
+                    
+                    if st.form_submit_button("Xác nhận Trả"):
+                        cell = sheet_thietbi.find(dev_ret)
+                        sheet_thietbi.update_cell(cell.row, 3, "Sẵn sàng")
+                        sheet_thietbi.update_cell(cell.row, 4, "")
+                        
+                        action_str = f"Hoàn trả (Ghi chú: {return_note})" if return_note else "Hoàn trả"
+                        sheet_lichsu.append_row([get_now().strftime("%d/%m/%Y %H:%M:%S"), st.session_state['ho_ten'], action_str, dev_ret])
+                        
+                        st.success(f"✅ Đã trả {dev
