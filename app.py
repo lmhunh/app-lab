@@ -155,64 +155,59 @@ else:
             st.dataframe(history_data.iloc[::-1], use_container_width=True, hide_index=True)
         else:
             st.info("Chưa có lịch sử giao dịch.")
-# --- TAB 4: ĐĂNG KÝ LỊCH THEO TUẦN (GIAO DIỆN WHEN2MEET) ---
+# Tạo danh sách 24 khung giờ: ["00:00", "01:00", ..., "23:00"]
+khung_gio_24h = [f"{i:02d}:00" for i in range(24)]
+# --- TAB 4: ĐĂNG KÝ LỊCH (PHONG CÁCH WHEN2MEET) ---
     with tab4:
-        st.subheader("📅 Ma trận lịch trình Lab trong tuần")
+        st.subheader("📅 Đăng ký lịch Lab")
         
-        # 1. Lấy dữ liệu và xử lý ngày tháng
-        df_lich = load_data(sheet_lichtuan)
+        col_input, col_view = st.columns([1, 2])
         
-        # Tạo danh sách 7 ngày trong tuần tới (từ hôm nay)
-        today = datetime.now().date()
-        days_of_week = [(today + pd.Timedelta(days=i)).strftime("%d/%m/%Y") for i in range(7)]
-        time_slots = ["Sáng (8h-12h)", "Chiều (13h-17h)", "Tối (18h-22h)"]
-
-        # 2. Hiển thị Ma trận (Heatmap)
-        if not df_lich.empty:
-            # Tạo bảng trống (Row: Ca làm việc, Col: Ngày)
-            matrix = pd.DataFrame("", index=time_slots, columns=days_of_week)
-            
-            # Đổ dữ liệu từ Sheets vào bảng ma trận
-            for _, row in df_lich.iterrows():
-                if row['Ngày'] in days_of_week and row['Ca làm việc'] in time_slots:
-                    # Hiển thị: Tên người (Tên thiết bị)
-                    content = f"{row['Người đăng ký']} ({row['Thiết bị']})"
-                    # Nếu ô đã có người, thêm dấu phẩy để tránh ghi đè
-                    if matrix.at[row['Ca làm việc'], row['Ngày']] == "":
-                        matrix.at[row['Ca làm việc'], row['Ngày']] = content
+        with col_input:
+            st.markdown("### 📝 Chọn khung giờ")
+            with st.form("form_24h"):
+                ngay_chon = st.date_input("Chọn ngày", min_value=datetime.now().date())
+                
+                # CHỌN NHIỀU GIỜ CÙNG LÚC
+                gio_da_chon = st.multiselect(
+                    "Chọn các khung giờ (có thể chọn nhiều)", 
+                    options=khung_gio_24h,
+                    help="Nhấp để chọn các khung giờ bạn định sử dụng Lab"
+                )
+                
+                thiet_bi = st.selectbox("Thiết bị sử dụng", df['Tên'].tolist() if not df.empty else ["Bàn lab"])
+                ghi_chu = st.text_input("Ghi chú thí nghiệm", placeholder="VD: Ủ nhiệt mẫu Cu2O...")
+                
+                btn_luu = st.form_submit_button("🔥 Xác nhận đăng ký")
+                
+                if btn_luu:
+                    if not gio_da_chon:
+                        st.warning("Bạn chưa chọn khung giờ nào!")
+                    elif not ghi_chu:
+                        st.warning("Vui lòng nhập mục đích!")
                     else:
-                        matrix.at[row['Ca làm việc'], row['Ngày']] += f" | {content}"
+                        # Ghi từng khung giờ thành một dòng riêng trong Sheets để dễ quản lý
+                        ngay_str = ngay_chon.strftime("%d/%m/%Y")
+                        for gio in gio_da_chon:
+                            sheet_lichtuan.append_row([ngay_str, gio, st.session_state['ho_ten'], thiet_bi, ghi_chu])
+                        
+                        st.success(f"✅ Đã đăng ký thành công {len(gio_da_chon)} khung giờ!")
+                        st.rerun()
 
-            # Hàm tô màu cho bảng giống When2meet
-            def highlight_booked(val):
-                if val != "":
-                    return 'background-color: #ff4b4b; color: white;' # Màu đỏ nếu có người đặt
-                return 'background-color: #2ecc71; color: white;'     # Màu xanh nếu trống
+        with col_view:
+            st.markdown("### 📋 Lịch trình chi tiết")
+            df_24h = load_data(sheet_lichtuan)
             
-            st.write("💡 **Xanh:** Trống | **Đỏ:** Đã có lịch")
-            st.dataframe(matrix.style.applymap(highlight_booked), use_container_width=True)
-        else:
-            st.info("Chưa có lịch đăng ký nào cho tuần này.")
-
-        st.markdown("---")
-        
-        # 3. Form Đăng ký (Giữ lại form để nhập liệu)
-        st.markdown("### 📝 Đăng ký ca làm việc mới")
-        c1, c2, c3 = st.columns(3)
-        with st.form("new_booking"):
-            with c1:
-                ngay_dk = st.date_input("Chọn ngày", min_value=today)
-            with c2:
-                ca_dk = st.selectbox("Chọn ca", time_slots)
-                thiet_bi_dk = st.selectbox("Thiết bị", df['Tên'].tolist() if not df.empty else ["Bàn lab"])
-            with c3:
-                muc_dich = st.text_input("Mục đích sử dụng", placeholder="VD: Rửa cốc,...")
-            
-            if st.form_submit_button("Xác nhận đăng ký"):
-                if muc_dich:
-                    ngay_str = ngay_dk.strftime("%d/%m/%Y")
-                    sheet_lichtuan.append_row([ngay_str, ca_dk, st.session_state['ho_ten'], thiet_bi_dk, muc_dich])
-                    st.success("Đã cập nhật lịch trình!")
-                    st.rerun()
+            if not df_24h.empty:
+                # Lọc lịch của ngày đang chọn để xem cho đỡ rối
+                filter_date = ngay_chon.strftime("%d/%m/%Y")
+                df_day = df_24h[df_24h['Ngày'] == filter_date]
+                
+                if not df_day.empty:
+                    # Sắp xếp theo giờ từ sớm đến muộn
+                    df_day = df_day.sort_values(by="Ca làm việc")
+                    st.dataframe(df_day, use_container_width=True, hide_index=True)
                 else:
-                    st.warning("Vui lòng nhập mục đích!")
+                    st.info(f"Ngày {filter_date} hiện chưa có ai đăng ký.")
+            else:
+                st.info("Chưa có dữ liệu lịch trình.")
