@@ -3,30 +3,31 @@ import pandas as pd
 import gspread
 from datetime import datetime
 import json
+import base64  # Thêm thư viện này
 
 # --- 1. CẤU HÌNH TRANG ---
 st.set_page_config(page_title="Hệ thống Quản lý Lab", layout="wide")
 
-# --- 2. HÀM KẾT NỐI SIÊU PHÒNG THỦ (SỬA LỖI JWT) ---
+# --- 2. HÀM KẾT NỐI SIÊU CẤP (DÙNG BASE64) ---
 def get_gspread_client():
     try:
-        if "google_sheets_creds" in st.secrets:
-            # Lấy dữ liệu từ Secrets
+        # Nếu dùng cách mã hóa Base64 (Cách an toàn nhất)
+        if "google_sheets_creds_base64" in st.secrets:
+            base64_str = st.secrets["google_sheets_creds_base64"]
+            # Giải mã chuỗi Base64 về dạng JSON ban đầu
+            decoded_bytes = base64.b64decode(base64_str)
+            creds_dict = json.loads(decoded_bytes)
+            return gspread.service_account_from_dict(creds_dict)
+            
+        # Cách dự phòng (Dán trực tiếp JSON)
+        elif "google_sheets_creds" in st.secrets:
             raw_creds = st.secrets["google_sheets_creds"]
-            
-            # Chuyển thành Dictionary
-            if isinstance(raw_creds, str):
-                creds_dict = json.loads(raw_creds, strict=False)
-            else:
-                creds_dict = dict(raw_creds)
-            
-            # TỰ ĐỘNG SỬA LỖI ĐỊNH DẠNG PRIVATE_KEY (Quan trọng nhất)
+            creds_dict = json.loads(raw_creds) if isinstance(raw_creds, str) else dict(raw_creds)
             if "private_key" in creds_dict:
                 creds_dict["private_key"] = creds_dict["private_key"].replace("\\n", "\n")
-            
             return gspread.service_account_from_dict(creds_dict)
+            
         else:
-            # Chạy ở máy tính cá nhân nếu có file credentials.json
             return gspread.service_account(filename='credentials.json')
     except Exception as e:
         st.error(f"❌ Lỗi cấu hình chìa khóa: {e}")
