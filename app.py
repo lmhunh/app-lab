@@ -40,6 +40,7 @@ try:
     sheet_thietbi = sh.worksheet("ThietBi")
     sheet_taikhoan = sh.worksheet("TaiKhoan")
     sheet_lichsu = sh.worksheet("LichSu")
+    sheet_lichtuan = sh.worksheet("LichTuan")
 except Exception as e:
     st.error(f"❌ Lỗi kết nối Google Sheets: {e}")
     st.info("💡 Bạn đã Share file Sheets cho email bot (culi-109@...) với quyền Editor chưa?")
@@ -93,7 +94,7 @@ else:
 
     st.markdown("---")
     df = load_data(sheet_thietbi)
-    tab1, tab2, tab3 = st.tabs(["📊 Trạng thái thiết bị", "🔄 Mượn / Trả", "🕒 Lịch sử"])
+    tab1, tab2, tab3 = st.tabs(["📊 Trạng thái thiết bị", "🔄 Mượn / Trả", "🕒 Lịch sử", "📅 Lịch theo tuần"])
 
     # --- TAB 1: HIỂN THỊ DANH SÁCH ---
     with tab1:
@@ -154,3 +155,42 @@ else:
             st.dataframe(history_data.iloc[::-1], use_container_width=True, hide_index=True)
         else:
             st.info("Chưa có lịch sử giao dịch.")
+# --- TAB 4: ĐĂNG KÝ LỊCH THEO TUẦN ---
+    with tab4:
+        st.subheader("Lịch sử dụng Lab trong tuần")
+        c_form, c_view = st.columns([1, 2])
+        
+        with c_form:
+            st.markdown("**📝 Form Đăng ký**")
+            with st.form("form_dat_lich"):
+                ngay_dk = st.date_input("Chọn ngày")
+                ca_lam_viec = st.selectbox("Ca làm việc", ["Sáng (8h-12h)", "Chiều (13h-17h)", "Tối (18h-22h)"])
+                
+                # Lấy danh sách thiết bị để chọn (bỏ các thiết bị đã hỏng)
+                danh_sach_tb = df[df['Trạng thái'] != 'Hỏng']['Tên'].tolist() if not df.empty else ["Bàn lab chung"]
+                thiet_bi_dk = st.selectbox("Thiết bị / Vị trí", danh_sach_tb)
+                
+                muc_dich = st.text_input("Mục đích", placeholder="VD: Đo phổ SERS mẫu Cu2O...")
+                
+                if st.form_submit_button("Lưu lịch"):
+                    if muc_dich == "":
+                        st.warning("Vui lòng nhập mục đích sử dụng!")
+                    else:
+                        ngay_str = ngay_dk.strftime("%d/%m/%Y")
+                        # Ghi dữ liệu vào Google Sheets
+                        sheet_lichtuan.append_row([ngay_str, ca_lam_viec, st.session_state['ho_ten'], thiet_bi_dk, muc_dich])
+                        st.success(f"✅ Đã lưu lịch ngày {ngay_str} ca {ca_lam_viec}!")
+                        st.rerun()
+
+        with c_view:
+            st.markdown("**📅 Lịch đã đăng ký**")
+            df_lich = load_data(sheet_lichtuan)
+            
+            if not df_lich.empty:
+                # Sắp xếp lịch theo ngày gần nhất
+                df_lich['Ngày_datetime'] = pd.to_datetime(df_lich['Ngày'], format='%d/%m/%Y')
+                df_lich_sorted = df_lich.sort_values(by=['Ngày_datetime', 'Ca làm việc']).drop(columns=['Ngày_datetime'])
+                
+                st.dataframe(df_lich_sorted, use_container_width=True, hide_index=True)
+            else:
+                st.info("Tuần này Lab đang trống lịch. Nhanh tay đăng ký nhé!")
