@@ -7,7 +7,7 @@ import time
 # ==========================================
 # 1. CẤU HÌNH & KẾT NỐI (GMT+7)
 # ==========================================
-st.set_page_config(page_title="Hệ thống Lab (Pro Timeline)", page_icon="📅", layout="wide")
+st.set_page_config(page_title="Hệ thống Lab (Fixed Timeline)", page_icon="📅", layout="wide")
 
 VN_TZ = timezone(timedelta(hours=7))
 
@@ -133,7 +133,7 @@ else:
 
     st.markdown("""
     <div style='text-align: center; font-style: italic; color: #4b4b4b; background-color: #f1f8ff; padding: 10px; border-radius: 8px; border-left: 5px solid #0366d6; margin-bottom: 20px;'>
-        "Nghiên cứu khoa học là biến những điều chưa biết thành kiến thức. Chúc bạn có một phiên làm việc hiệu quả và thu được kết quả hoàn mỹ nhất!" 🔬✨
+        "Nghiên cứu khoa học là biến những điều chưa biết thành kiến thức. Chúc bạn có một phiên làm việc hiệu quả!" 🔬✨
     </div>
     """, unsafe_allow_html=True)
     
@@ -162,7 +162,6 @@ else:
         with c_filter:
             view_mode = st.selectbox("🔍 Chọn thiết bị để thao tác:", all_devices if all_devices else ["Chưa có dữ liệu"])
         
-        # Thẻ trạng thái hiện tại
         if not df_tb.empty and view_mode in df_tb['Tên'].values:
             current_status = df_tb[df_tb['Tên'] == view_mode].iloc[0]['Trạng thái']
             current_user = df_tb[df_tb['Tên'] == view_mode].iloc[0].get('Người sử dụng', '')
@@ -182,30 +181,29 @@ else:
 
         st.write("") 
 
-        # VẼ TIMELINE BẰNG HTML (CHIA THEO TỈ LỆ THỰC)
+        # VẼ TIMELINE BẰNG HTML (SỬA LỖI CODE BLOCK CỦA MARKDOWN)
         with st.expander(f"👉 Mở Timeline Lịch tuần của [{view_mode}]", expanded=True):
             df_dev = df_lich_view[df_lich_view['Thiết bị'] == view_mode] if not df_lich_view.empty else pd.DataFrame()
             
-            html_timeline = "<div style='width: 100%; font-family: sans-serif; overflow-x: auto; padding-bottom: 10px;'>"
+            # Khử trùng lặp dữ liệu do test lỗi cũ
+            if not df_dev.empty:
+                df_dev = df_dev.drop_duplicates(subset=['Ngày', 'Ca làm việc', 'Thiết bị'])
             
-            # Thanh Ruler (0h, 3h, 6h, 9h...)
+            html_timeline = "<div style='width: 100%; font-family: sans-serif; overflow-x: auto; padding-bottom: 10px;'>"
             html_timeline += "<div style='display: flex; position: relative; width: 100%; min-width: 600px; height: 25px; border-bottom: 2px solid #ccc; margin-bottom: 8px; font-size: 12px; color: #666; font-weight: bold;'>"
             for h in range(0, 25, 2):
                 left_pct = (h / 24.0) * 100
                 html_timeline += f"<div style='position: absolute; left: {left_pct}%; transform: translateX(-50%);'>{h:02d}:00</div>"
             html_timeline += "</div>"
             
-            # Vẽ từng ngày
             for d in days_7:
                 html_timeline += f"<div style='display: flex; align-items: center; margin-bottom: 12px; min-width: 600px;'>"
                 html_timeline += f"<div style='width: 80px; font-size: 14px; font-weight: bold; color: #333;'>{d[:5]}</div>" 
                 html_timeline += "<div style='flex-grow: 1; position: relative; height: 35px; background-color: #f1f3f4; border-radius: 6px; box-shadow: inset 0 1px 3px rgba(0,0,0,0.1);'>"
                 
-                # Các vạch mờ phân chia từng giờ
                 for h in range(1, 24):
                     html_timeline += f"<div style='position: absolute; left: {(h/24)*100}%; width: 1px; height: 100%; background-color: #fff;'></div>"
                 
-                # Vẽ các khối thời gian theo tỉ lệ phút
                 df_day = df_dev[df_dev['Ngày'] == d]
                 if not df_day.empty:
                     for _, r in df_day.iterrows():
@@ -225,14 +223,16 @@ else:
                                 
                                 user = r['Người sử dụng']
                                 is_me = user == st.session_state.get('ho_ten', '')
-                                color = "#1a73e8" if is_me else "#ea4335" # Xanh nếu là mình, Đỏ nếu là người khác
+                                color = "#1a73e8" if is_me else "#ea4335"
                                 
-                                tooltip = f"⌚ {s_str}-{e_str}&#10;👤 {user}&#10;📝 {r.get('Mục đích', '')}"
-                                html_timeline += f"""
-                                <div title="{tooltip}" style='position: absolute; left: {left_pct}%; width: {width_pct}%; height: 100%; background-color: {color}; border-radius: 4px; color: white; font-size: 11px; display: flex; align-items: center; justify-content: center; overflow: hidden; white-space: nowrap; box-shadow: 0 2px 4px rgba(0,0,0,0.2); cursor: pointer; transition: 0.2s;'>
-                                    <span style="padding: 0 5px;">{s_str}-{e_str} ({user})</span>
-                                </div>
-                                """
+                                tooltip = f"⌚ {s_str} - {e_str} | 👤 {user} | 📝 {r.get('Mục đích', '')}"
+                                
+                                # Nếu độ rộng nhỏ hơn 8% (dưới 2 tiếng), ẩn chữ đi cho đỡ rối, chỉ hiện khi hover
+                                display_text = f"{s_str}-{e_str} ({user})" if width_pct >= 8 else "..."
+                                
+                                # Đặt trên 1 dòng duy nhất để tránh lỗi Markdown code block
+                                block_html = f"<div title='{tooltip}' style='position: absolute; left: {left_pct}%; width: {width_pct}%; height: 100%; background-color: {color}; border-radius: 4px; color: white; font-size: 11px; display: flex; align-items: center; justify-content: center; overflow: hidden; white-space: nowrap; box-shadow: 0 2px 4px rgba(0,0,0,0.2); cursor: pointer; transition: 0.2s;'><span style='padding: 0 5px;'>{display_text}</span></div>"
+                                html_timeline += block_html
                             except: pass
                 html_timeline += "</div></div>"
             html_timeline += "</div>"
@@ -247,98 +247,4 @@ else:
         with st.form("smart_booking"):
             st.info("💡 **Mẹo:** Bạn cứ thoải mái gõ giờ bằng số (VD: `14:30` hoặc `1430`).")
             
-            c1, c2, c3, c4 = st.columns([1.5, 1, 1, 2])
-            with c1: 
-                d_pick = st.date_input("🗓️ Chọn ngày", min_value=today)
-            with c2: 
-                t_start_input = st.text_input("⏳ Từ lúc:", value=get_now().strftime('%H:%M'))
-            with c3: 
-                t_end_input = st.text_input("⏳ Đến lúc:", value=(get_now() + timedelta(hours=1)).strftime('%H:%M'))
-            with c4: 
-                note = st.text_input("Mục đích (VD: Chạy mẫu Cu2O)")
-            
-            st.markdown("---")
-            btn_submit = st.form_submit_button("🔥 Xác nhận")
-            
-            if btn_submit:
-                t_start = parse_time(t_start_input)
-                t_end = parse_time(t_end_input)
-
-                if not t_start or not t_end:
-                    st.error("❌ Lỗi: Thời gian không hợp lệ! Vui lòng kiểm tra lại định dạng HH:MM.")
-                    st.stop()
-
-                d_str = d_pick.strftime("%d/%m/%Y")
-                today_str = get_now().strftime("%d/%m/%Y")
-                current_t = get_now().time()
-                
-                if t_end <= t_start:
-                    st.error("❌ Lỗi: Giờ kết thúc phải lớn hơn giờ bắt đầu!")
-                    st.stop()
-                
-                df_lich_rt = pd.DataFrame(sheet_lichtuan.get_all_records())
-                
-                # KIỂM TRA TRÙNG LỊCH: CHỈ CHẶN ĐÚNG THIẾT BỊ NÀY, ĐÚNG TỪNG PHÚT
-                conflict_found = []
-                if not df_lich_rt.empty:
-                    df_day_device = df_lich_rt[(df_lich_rt['Ngày'] == d_str) & (df_lich_rt['Thiết bị'] == view_mode)]
-                    for _, row in df_day_device.iterrows():
-                        try:
-                            exist_start = parse_time(row['Ca làm việc'].split(" - ")[0])
-                            exist_end = parse_time(row['Ca làm việc'].split(" - ")[1])
-                            
-                            # CÓ GIAO CẮT THỜI GIAN (Bất kể là ai, cùng 1 thiết bị là chặn)
-                            if t_start < exist_end and exist_start < t_end:
-                                conflict_found.append(f"{row['Ca làm việc']} (bởi {row['Người sử dụng']})")
-                        except: pass
-
-                if conflict_found: 
-                    st.error(f"❌ Rất tiếc, {view_mode} đã bị kẹt lịch:\n" + "\n".join([f"- {c}" for c in conflict_found]))
-                else:
-                    ca_lam_viec_str = f"{t_start.strftime('%H:%M')} - {t_end.strftime('%H:%M')}"
-                    sheet_lichtuan.append_row([d_str, ca_lam_viec_str, st.session_state['ho_ten'], view_mode, note])
-                    
-                    # Logic: Nếu chọn thời gian bao trùm hiện tại -> Đang mượn
-                    is_active_now = (d_str == today_str) and (t_start <= current_t <= t_end)
-                    
-                    if is_active_now:
-                        cell = sheet_thietbi.find(view_mode)
-                        sheet_thietbi.update_cell(cell.row, 3, "Đang mượn")
-                        sheet_thietbi.update_cell(cell.row, 4, st.session_state['ho_ten'])
-                        sheet_lichsu.append_row([get_now().strftime("%d/%m/%Y %H:%M:%S"), st.session_state['ho_ten'], f"Sử dụng trực tiếp ({ca_lam_viec_str})", view_mode])
-                        st.success(f"✅ Đã ghi nhận bạn mượn {view_mode}. Máy sẽ tự động thu hồi lúc {t_end.strftime('%H:%M')}.")
-                    else:
-                        sheet_lichsu.append_row([get_now().strftime("%d/%m/%Y %H:%M:%S"), st.session_state['ho_ten'], f"Đặt lịch ({d_str} {ca_lam_viec_str})", view_mode])
-                        st.success(f"✅ Đã chốt lịch sử dụng {view_mode} lên hệ thống!")
-                        
-                    load_data.clear() 
-                    st.rerun()
-
-    # --- TAB 3 & 4 (GIỮ NGUYÊN) ---
-    with tab3:
-        st.subheader("Lịch sử hoạt động")
-        df_h = load_data("LichSu")
-        if not df_h.empty: st.dataframe(df_h.iloc[::-1], use_container_width=True, hide_index=True)
-
-    with tab4:
-        st.subheader("🔄 Hoàn trả & Ghi chú tình trạng thiết bị")
-        if "Người sử dụng" in df_tb.columns:
-            my_list = df_tb[df_tb["Người sử dụng"] == st.session_state['ho_ten']]['Tên'].tolist()
-            if not my_list: 
-                st.success("Bạn hiện không giữ thiết bị nào.")
-            else:
-                with st.form("return_form"):
-                    dev_ret = st.selectbox("Chọn thiết bị đang giữ để trả:", my_list)
-                    return_note = st.text_input("📝 Ghi chú tình trạng (VD: Lò nung gia nhiệt ổn định...)")
-                    
-                    if st.form_submit_button("Xác nhận Trả"):
-                        cell = sheet_thietbi.find(dev_ret)
-                        sheet_thietbi.update_cell(cell.row, 3, "Sẵn sàng")
-                        sheet_thietbi.update_cell(cell.row, 4, "")
-                        
-                        action_str = f"Hoàn trả (Ghi chú: {return_note})" if return_note else "Hoàn trả"
-                        sheet_lichsu.append_row([get_now().strftime("%d/%m/%Y %H:%M:%S"), st.session_state['ho_ten'], action_str, dev_ret])
-                        
-                        st.success(f"✅ Đã trả thành công {dev_ret}.")
-                        load_data.clear() 
-                        st.rerun()
+            c1,
