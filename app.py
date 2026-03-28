@@ -4,6 +4,21 @@ import gspread
 from datetime import datetime
 import json # Đảm bảo có thư viện này để xử lý dữ liệu
 
+def connect_to_gsheets():
+    try:
+        # Lấy dữ liệu từ "Két sắt" Secrets
+        creds_dict = dict(st.secrets["my_creds"])
+        
+        # 1. Loại bỏ khoảng trắng thừa ở đầu/cuối
+        pk = creds_dict["private_key"].strip()
+        
+        # 2. Xử lý ký tự xuống dòng (Trị dứt điểm lỗi JWT và PEM)
+        creds_dict["private_key"] = pk.replace("\\n", "\n")
+        
+        return gspread.service_account_from_dict(creds_dict)
+    except Exception as e:
+        st.error(f"❌ Lỗi xử lý khóa bí mật: {e}")
+        st.stop()
 # --- 1. CẤU HÌNH TRANG ---
 st.set_page_config(page_title="Hệ thống Quản lý Lab", layout="wide")
 
