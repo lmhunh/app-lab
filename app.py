@@ -9,11 +9,21 @@ st.set_page_config(page_title="Hệ thống Quản lý Lab", layout="wide")
 
 # --- KẾT NỐI GOOGLE SHEETS BẢO MẬT ---
 try:
+    # Kiểm tra xem có cấu hình trong Secrets không
     if "google_sheets_creds" in st.secrets:
-        creds_dict = json.loads(st.secrets["google_sheets_creds"])
-        creds_dict = json.loads(creds_json)
+        # Lấy dữ liệu từ Secrets
+        raw_creds = st.secrets["google_sheets_creds"]
+        
+        # Nếu dữ liệu là chuỗi (string), chuyển nó thành dictionary
+        if isinstance(raw_creds, str):
+            creds_dict = json.loads(raw_creds, strict=False)
+        else:
+            # Nếu Streamlit đã tự hiểu là dict (tùy phiên bản)
+            creds_dict = dict(raw_creds)
+            
         gc = gspread.service_account_from_dict(creds_dict)
     else:
+        # Nếu chạy ở máy tính cá nhân
         gc = gspread.service_account(filename='credentials.json')
         
     sh = gc.open("Quan_ly_lab")
