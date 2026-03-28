@@ -320,4 +320,6 @@ else:
                         action_str = f"Hoàn trả (Ghi chú: {return_note})" if return_note else "Hoàn trả"
                         sheet_lichsu.append_row([get_now().strftime("%d/%m/%Y %H:%M:%S"), st.session_state['ho_ten'], action_str, dev_ret])
                         
-                        st.success(f"✅ Đã trả {dev
+                        st.success(f"✅ Đã trả {dev_ret}.")
+                        load_data.clear() 
+                        st.rerun()
