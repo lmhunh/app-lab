@@ -5,9 +5,9 @@ from datetime import datetime, timedelta, timezone, time as dt_time
 import time
 
 # ==========================================
-# 1. CẤU HÌNH & KẾT NỐI (BỌC THÉP CHỐNG LỖI 429)
+# 1. CẤU HÌNH & KẾT NỐI (GMT+7)
 # ==========================================
-st.set_page_config(page_title="Hệ thống Lab (Độc lập)", page_icon="📅", layout="wide")
+st.set_page_config(page_title="Hệ thống Lab (Smart Unified)", page_icon="📅", layout="wide")
 
 VN_TZ = timezone(timedelta(hours=7))
 
@@ -123,17 +123,17 @@ if not st.session_state['logged_in']:
 # ==========================================
 else:
     col_t, col_l = st.columns([8, 2])
-    col_t.title("📅 Hệ thống Quản lý Thiết bị Lab")
+    col_t.title("📅 Quản lý Hệ thống Thiết bị Lab")
     with col_l:
         st.write(f"👤 **{st.session_state['ho_ten']}**")
         if st.button("🚪 Đăng xuất"):
             st.session_state['logged_in'] = False
             st.rerun()
 
-    # --- CÂU NÓI KHÍCH LỆ NGHIÊN CỨU ---
+    # CÂU NÓI KHÍCH LỆ
     st.markdown("""
     <div style='text-align: center; font-style: italic; color: #4b4b4b; background-color: #f1f8ff; padding: 10px; border-radius: 8px; border-left: 5px solid #0366d6; margin-bottom: 20px;'>
-        "Khoa học không chỉ là khám phá thế giới, mà là kiến tạo tương lai. Chúc bạn có một phiên nghiên cứu thành công và thu được những dữ liệu hoàn hảo nhất!" 🔬✨
+        "Nghiên cứu khoa học là biến những điều chưa biết thành kiến thức. Chúc bạn có một phiên làm việc hiệu quả và thu được kết quả hoàn mỹ nhất!" 🔬✨
     </div>
     """, unsafe_allow_html=True)
     
@@ -148,7 +148,7 @@ else:
     today = get_now().date()
     days_7 = [(today + timedelta(days=i)).strftime("%d/%m/%Y") for i in range(7)]
 
-    tab1, tab2, tab3, tab4 = st.tabs(["📊 Trạng thái", "📅 Lịch & Đặt lịch", "🕒 Lịch sử", "🔄 Trả thiết bị"])
+    tab1, tab2, tab3, tab4 = st.tabs(["📊 Trạng thái", "📅 Lịch & Sử dụng thiết bị", "🕒 Lịch sử", "🔄 Trả thiết bị"])
 
     # --- TAB 1: TRẠNG THÁI ---
     with tab1:
@@ -156,12 +156,12 @@ else:
         if not df_tb.empty:
             st.dataframe(df_tb, use_container_width=True, hide_index=True)
 
-    # --- TAB 2: LỊCH CALENDAR & ĐẶT LỊCH ĐỘC LẬP ---
+    # --- TAB 2: LỊCH CALENDAR & ĐẶT LỊCH ---
     with tab2:
-        st.subheader("📅 Kiểm tra và Đặt lịch thiết bị")
+        st.subheader("📅 Kiểm tra và Đăng ký thiết bị")
         c_filter, _ = st.columns([1, 2])
         with c_filter:
-            view_mode = st.selectbox("🔍 Chọn thiết bị để xem và thao tác:", all_devices if all_devices else ["Chưa có dữ liệu"])
+            view_mode = st.selectbox("🔍 Chọn thiết bị để thao tác:", all_devices if all_devices else ["Chưa có dữ liệu"])
         
         # Thẻ trạng thái
         if not df_tb.empty and view_mode in df_tb['Tên'].values:
@@ -171,7 +171,7 @@ else:
             if current_status == 'Sẵn sàng':
                 st.markdown(f"""
                 <div style='padding: 15px; border-radius: 8px; background-color: #d4edda; color: #155724; border: 1px solid #c3e6cb;'>
-                    <h4 style='margin: 0;'>🟢 <b>{view_mode}</b> đang SẴN SÀNG! Bạn có thể đặt lịch ngay.</h4>
+                    <h4 style='margin: 0;'>🟢 <b>{view_mode}</b> đang SẴN SÀNG! Bạn có thể sử dụng ngay.</h4>
                 </div>
                 """, unsafe_allow_html=True)
             else:
@@ -218,13 +218,13 @@ else:
             st.dataframe(
                 matrix.style.map(style_calendar),
                 use_container_width=True,
-                height=450
+                height=400
             )
             
         st.markdown("---")
         
-        # FORM ĐẶT LỊCH ĐỘC LẬP THEO THIẾT BỊ
-        st.markdown(f"### 📝 Đặt lịch thời gian cho: **{view_mode}**")
+        # FORM ĐĂNG KÝ HỢP NHẤT (MỘT NÚT DUY NHẤT)
+        st.markdown(f"### 📝 Thời gian sử dụng thiết bị: **{view_mode}**")
         with st.form("smart_booking"):
             st.info("💡 **Mẹo:** Gõ trực tiếp thời gian bằng số (VD: `14:30`, `1430` hoặc `9`).")
             
@@ -244,7 +244,8 @@ else:
                 note = st.text_input("Mục đích (VD: Chạy mẫu Cu2O)")
             
             st.markdown("---")
-            btn_submit = st.form_submit_button("🔥 Xác nhận Lịch")
+            # GỘP THÀNH 1 NÚT XÁC NHẬN
+            btn_submit = st.form_submit_button("🔥 Xác nhận")
             
             if btn_submit:
                 t_start = parse_time(t_start_input)
@@ -270,7 +271,7 @@ else:
                 
                 df_lich_rt = pd.DataFrame(sheet_lichtuan.get_all_records())
                 
-                # Rà soát trùng lịch CHỈ DÀNH CHO THIẾT BỊ ĐANG CHỌN (view_mode)
+                # KIỂM TRA TRÙNG LỊCH THÔNG MINH
                 conflict_found = []
                 if not df_lich_rt.empty:
                     df_day_device = df_lich_rt[(df_lich_rt['Ngày'] == d_str) & (df_lich_rt['Thiết bị'] == view_mode)]
@@ -279,29 +280,29 @@ else:
                             exist_start = parse_time(row['Ca làm việc'].split(" - ")[0])
                             exist_end = parse_time(row['Ca làm việc'].split(" - ")[1])
                             
-                            # Kiểm tra giao cắt thời gian
+                            # CÓ GIAO CẮT THỜI GIAN
                             if t_start < exist_end and exist_start < t_end:
-                                conflict_found.append(f"lúc {row['Ca làm việc']} (bởi {row['Người sử dụng']})")
+                                # BỎ QUA NẾU NGƯỜI DÙNG LÀ CHÍNH MÌNH (Cho phép tự đè lịch của mình)
+                                if row['Người sử dụng'] != st.session_state['ho_ten']:
+                                    conflict_found.append(f"lúc {row['Ca làm việc']} (bởi {row['Người sử dụng']})")
                         except: pass
 
                 if conflict_found: 
-                    st.error(f"❌ Rất tiếc, {view_mode} đã bị kẹt lịch:\n" + "\n".join([f"- {c}" for c in conflict_found]))
+                    st.error(f"❌ Rất tiếc, {view_mode} đang kẹt lịch của người khác:\n" + "\n".join([f"- {c}" for c in conflict_found]))
                 else:
                     ca_lam_viec_str = f"{t_start.strftime('%H:%M')} - {t_end.strftime('%H:%M')}"
-                    
-                    # Ghi nhận vào ma trận lịch
                     sheet_lichtuan.append_row([d_str, ca_lam_viec_str, st.session_state['ho_ten'], view_mode, note])
                     
-                    # Nếu là mượn ngay bây giờ, cập nhật trạng thái thiết bị
+                    # Hệ thống tự nhận diện: Nếu tick "Bây giờ" và chọn đúng hôm nay -> Kích hoạt mượn ngay
                     if is_now and d_str == today_str:
                         cell = sheet_thietbi.find(view_mode)
                         sheet_thietbi.update_cell(cell.row, 3, "Đang mượn")
                         sheet_thietbi.update_cell(cell.row, 4, st.session_state['ho_ten'])
-                        sheet_lichsu.append_row([get_now().strftime("%d/%m/%Y %H:%M:%S"), st.session_state['ho_ten'], f"Mượn trực tiếp ({ca_lam_viec_str})", view_mode])
-                        st.success(f"✅ Đã ghi nhận mượn {view_mode}. Lịch sẽ tự động thu hồi lúc {t_end.strftime('%H:%M')}.")
+                        sheet_lichsu.append_row([get_now().strftime("%d/%m/%Y %H:%M:%S"), st.session_state['ho_ten'], f"Sử dụng trực tiếp ({ca_lam_viec_str})", view_mode])
+                        st.success(f"✅ Đã kích hoạt sử dụng {view_mode}. Máy sẽ tự động thu hồi lúc {t_end.strftime('%H:%M')}.")
                     else:
                         sheet_lichsu.append_row([get_now().strftime("%d/%m/%Y %H:%M:%S"), st.session_state['ho_ten'], f"Đặt lịch ({d_str} {ca_lam_viec_str})", view_mode])
-                        st.success(f"✅ Đã chốt lịch cho {view_mode} thành công lên Calendar!")
+                        st.success(f"✅ Đã chốt lịch sử dụng {view_mode} lên hệ thống!")
                         
                     load_data.clear() 
                     st.rerun()
@@ -313,16 +314,16 @@ else:
         if not df_h.empty: st.dataframe(df_h.iloc[::-1], use_container_width=True, hide_index=True)
 
     with tab4:
-        st.subheader("🔄 Hoàn trả thủ công từng thiết bị")
+        st.subheader("🔄 Hoàn trả & Ghi chú tình trạng thiết bị")
         if "Người sử dụng" in df_tb.columns:
             my_list = df_tb[df_tb["Người sử dụng"] == st.session_state['ho_ten']]['Tên'].tolist()
             if not my_list: 
                 st.success("Bạn hiện không giữ thiết bị nào.")
             else:
                 with st.form("return_form"):
-                    st.info("💡 Bạn đang xem và thao tác độc lập với từng thiết bị.")
-                    dev_ret = st.selectbox("Chọn 1 thiết bị đang giữ để trả:", my_list)
-                    return_note = st.text_input("Ghi chú sau khi dùng (VD: Máy hoạt động tốt, đã vệ sinh...)")
+                    st.info("💡 Bạn có thể báo cáo tình trạng máy móc (vd: hỏng hóc, cần vệ sinh) vào ô ghi chú để Lab lưu lại.")
+                    dev_ret = st.selectbox("Chọn thiết bị đang giữ để trả:", my_list)
+                    return_note = st.text_input("📝 Ghi chú tình trạng (VD: Lò nung gia nhiệt ổn định, đã vệ sinh sạch sẽ...)")
                     
                     if st.form_submit_button("Xác nhận Trả"):
                         cell = sheet_thietbi.find(dev_ret)
@@ -332,6 +333,6 @@ else:
                         action_str = f"Hoàn trả (Ghi chú: {return_note})" if return_note else "Hoàn trả"
                         sheet_lichsu.append_row([get_now().strftime("%d/%m/%Y %H:%M:%S"), st.session_state['ho_ten'], action_str, dev_ret])
                         
-                        st.success(f"✅ Đã trả thành công {dev_ret}.")
+                        st.success(f"✅ Đã trả thành công {dev_ret}. Cảm ơn bạn đã cập nhật tình trạng thiết bị!")
                         load_data.clear() 
                         st.rerun()
