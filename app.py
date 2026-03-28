@@ -1,13 +1,20 @@
 import streamlit as st
 import pandas as pd
 import gspread
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 import time
 
 # ==========================================
-# 1. CẤU HÌNH & KẾT NỐI
+# 1. CẤU HÌNH & KẾT NỐI (CỐ ĐỊNH GMT+7)
 # ==========================================
-st.set_page_config(page_title="Hệ thống Lab (Anti-429)", page_icon="⏱️", layout="wide")
+st.set_page_config(page_title="Hệ thống Lab (Sync Time)", page_icon="⏱️", layout="wide")
+
+# Khai báo múi giờ Việt Nam (GMT+7)
+VN_TZ = timezone(timedelta(hours=7))
+
+def get_now():
+    """Hàm lấy thời gian thực chính xác theo GMT+7"""
+    return datetime.now(VN_TZ)
 
 @st.cache_resource
 def connect_to_gsheets():
@@ -32,7 +39,6 @@ except Exception as e:
     st.error(f"❌ Lỗi kết nối Sheets: {e}")
     st.stop()
 
-# BỘ NHỚ ĐỆM "THẦN THÁNH": Lưu dữ liệu 15 giây để chống lỗi 429
 @st.cache_data(ttl=15, show_spinner=False)
 def load_data(sheet_name):
     try:
@@ -44,7 +50,7 @@ def load_data(sheet_name):
         return pd.DataFrame(sheet.get_all_records())
 
 # ==========================================
-# 2. ROBOT TỰ ĐỘNG THU HỒI
+# 2. ROBOT TỰ ĐỘNG THU HỒI (CHẠY THEO GMT+7)
 # ==========================================
 def auto_return_devices():
     try:
@@ -52,7 +58,7 @@ def auto_return_devices():
         df_lich = load_data("LichTuan")
         if df_tb.empty or df_lich.empty: return
         
-        now = datetime.now()
+        now = get_now()
         today_str = now.strftime("%d/%m/%Y")
         current_hour = now.hour
         
@@ -77,7 +83,7 @@ def auto_return_devices():
                         has_changes = True
                         
         if has_changes:
-            load_data.clear() # Xóa cache nếu có máy bị thu hồi
+            load_data.clear() 
     except:
         pass
 
@@ -115,13 +121,14 @@ else:
     st.markdown("---")
     auto_return_devices()
     
-    # Truyền TÊN SHEET thay vì Object để Cache hoạt động
     df_tb = load_data("ThietBi")
     df_lich_view = load_data("LichTuan")
     all_devices = df_tb['Tên'].tolist() if not df_tb.empty else []
     
     khung_gio_24h = [f"{i:02d}:00" for i in range(24)]
-    today = datetime.now().date()
+    
+    # Lấy ngày hôm nay theo chuẩn VN_TZ
+    today = get_now().date()
     days_7 = [(today + timedelta(days=i)).strftime("%d/%m/%Y") for i in range(7)]
 
     tab1, tab2, tab3, tab4 = st.tabs(["📊 Trạng thái", "📅 Ma trận Tương tác", "🕒 Lịch sử", "🔄 Trả thiết bị"])
@@ -140,8 +147,6 @@ else:
         with c_filter:
             view_mode = st.selectbox("🔍 Chọn thiết bị để xem lịch:", all_devices if all_devices else ["Chưa có dữ liệu"])
         
-        st.info(f"💡 Đang hiển thị lịch trình của **{view_mode}**. Click vào từng ô để xem chi tiết.")
-
         df_matrix_data = df_lich_view[df_lich_view['Thiết bị'] == view_mode] if not df_lich_view.empty else pd.DataFrame()
 
         matrix = pd.DataFrame("🟢 Trống", index=khung_gio_24h, columns=days_7)
@@ -191,12 +196,24 @@ else:
             with c_sub: btn_book = st.form_submit_button("🔥 Xác nhận Đặt lịch")
             with c_now: btn_use_now = st.form_submit_button("⚡ Mượn ngay bây giờ")
             
+            # --- XỬ LÝ ĐẶT LỊCH ---
             if btn_book:
-                # Ép tải lại data trực tiếp từ Google Sheets khi bấm nút (vượt qua cache)
+                d_str = d_pick.strftime("%d/%m/%Y")
+                current_time = get_now()
+                today_str = current_time.strftime("%d/%m/%Y")
+                current_hour = current_time.hour
+                
+                # 1. KIỂM TRA ĐẶT LỊCH QUÁ KHỨ (Cùng ngày nhưng giờ đã qua)
+                if d_str == today_str:
+                    past_hours = [g for g in g_picks if int(g.split(":")[0]) <= current_hour]
+                    if past_hours:
+                        st.error(f"⏳ Lỗi: Bạn không thể đặt các giờ đã qua trong hôm nay ({', '.join(past_hours)}). Hãy chọn từ {current_hour + 1}:00 trở đi!")
+                        st.stop()
+                
+                # 2. KIỂM TRA TRÙNG LỊCH THỜI GIAN THỰC
                 sheet_lich_rt = sh.worksheet("LichTuan")
                 df_lich_rt = pd.DataFrame(sheet_lich_rt.get_all_records())
                 
-                d_str = d_pick.strftime("%d/%m/%Y")
                 conflicts = [g for g in g_picks if not df_lich_rt[(df_lich_rt['Ngày'] == d_str) & (df_lich_rt['Ca làm việc'] == g) & (df_lich_rt['Thiết bị'] == view_mode)].empty]
                 
                 if conflicts: st.error(f"❌ Rất tiếc, {view_mode} đã bị đặt vào lúc: {', '.join(conflicts)}")
@@ -204,30 +221,34 @@ else:
                 else:
                     for g in g_picks:
                         sheet_lichtuan.append_row([d_str, g, st.session_state['ho_ten'], view_mode, note])
+                        # Ghi log Đặt lịch
+                        sheet_lichsu.append_row([get_now().strftime("%d/%m/%Y %H:%M:%S"), st.session_state['ho_ten'], f"Đặt lịch ({d_str} {g})", view_mode])
                     st.success("✅ Đã đặt lịch thành công!")
-                    load_data.clear() # XÓA CACHE ĐỂ CẬP NHẬT GIAO DIỆN NGAY LẬP TỨC
+                    load_data.clear() 
                     st.rerun()
             
+            # --- XỬ LÝ MƯỢN NGAY ---
             if btn_use_now:
+                current_time = get_now()
+                d_str = current_time.strftime("%d/%m/%Y")
+                h_str = current_time.strftime("%H:00")
+                
                 sheet_lich_rt = sh.worksheet("LichTuan")
                 df_lich_rt = pd.DataFrame(sheet_lich_rt.get_all_records())
                 
-                d_str = datetime.now().strftime("%d/%m/%Y")
-                h_str = datetime.now().strftime("%H:00")
-                
                 conflict = df_lich_rt[(df_lich_rt['Ngày'] == d_str) & (df_lich_rt['Ca làm việc'] == h_str) & (df_lich_rt['Thiết bị'] == view_mode)]
                 if not conflict.empty and conflict.iloc[0]['Người sử dụng'] != st.session_state['ho_ten']:
-                    st.error(f"⚠️ {view_mode} đã được {conflict.iloc[0]['Người sử dụng']} đặt lịch lúc này.")
+                    st.error(f"⚠️ {view_mode} đang bận! Được {conflict.iloc[0]['Người sử dụng']} đặt lịch lúc này.")
                 else:
                     cell = sheet_thietbi.find(view_mode)
                     sheet_thietbi.update_cell(cell.row, 3, "Đang mượn")
                     sheet_thietbi.update_cell(cell.row, 4, st.session_state['ho_ten'])
-                    sheet_lichsu.append_row([datetime.now().strftime("%d/%m/%Y %H:%M:%S"), st.session_state['ho_ten'], "Sử dụng", view_mode])
+                    sheet_lichsu.append_row([current_time.strftime("%d/%m/%Y %H:%M:%S"), st.session_state['ho_ten'], "Sử dụng", view_mode])
                     st.success(f"✅ Đã ghi nhận bạn đang sử dụng {view_mode}")
-                    load_data.clear() # XÓA CACHE
+                    load_data.clear() 
                     st.rerun()
 
-    # --- TAB 3 & 4 (GIỮ NGUYÊN) ---
+    # --- TAB 3 & 4 ---
     with tab3:
         st.subheader("Lịch sử hoạt động")
         df_h = load_data("LichSu")
@@ -245,7 +266,7 @@ else:
                         cell = sheet_thietbi.find(dev_ret)
                         sheet_thietbi.update_cell(cell.row, 3, "Sẵn sàng")
                         sheet_thietbi.update_cell(cell.row, 4, "")
-                        sheet_lichsu.append_row([datetime.now().strftime("%d/%m/%Y %H:%M:%S"), st.session_state['ho_ten'], "Hoàn trả sớm", dev_ret])
+                        sheet_lichsu.append_row([get_now().strftime("%d/%m/%Y %H:%M:%S"), st.session_state['ho_ten'], "Hoàn trả sớm", dev_ret])
                         st.success(f"✅ Đã trả {dev_ret}")
-                        load_data.clear() # XÓA CACHE
+                        load_data.clear() 
                         st.rerun()
