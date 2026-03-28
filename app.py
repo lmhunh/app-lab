@@ -94,7 +94,7 @@ else:
 
     st.markdown("---")
     df = load_data(sheet_thietbi)
-    tab1, tab2, tab3 = st.tabs(["📊 Trạng thái thiết bị", "🔄 Mượn / Trả", "🕒 Lịch sử", "📅 Lịch theo tuần"])
+    tab1, tab2, tab3, tab4 = st.tabs(["📊 Trạng thái thiết bị", "🔄 Mượn / Trả", "🕒 Lịch sử", "📅 Lịch theo tuần"])
 
     # --- TAB 1: HIỂN THỊ DANH SÁCH ---
     with tab1:
