@@ -155,9 +155,12 @@ else:
             st.dataframe(history_data.iloc[::-1], use_container_width=True, hide_index=True)
         else:
             st.info("Chưa có lịch sử giao dịch.")
-# Tạo danh sách 24 khung giờ: ["00:00", "01:00", ..., "23:00"]
-khung_gio_24h = [f"{i:02d}:00" for i in range(24)]
-# --- TAB 4: ĐĂNG KÝ LỊCH (PHONG CÁCH WHEN2MEET) ---
+# ... (Phần code của tab 3 ở trên)
+
+    # --- TAB 4: ĐĂNG KÝ LỊCH (PHONG CÁCH WHEN2MEET) ---
+    # Chú ý: Dòng này và dòng dưới phải lùi vào cùng mức với "with tab3:"
+    khung_gio_24h = [f"{i:02d}:00" for i in range(24)]
+    
     with tab4:
         st.subheader("📅 Đăng ký lịch Lab")
         
@@ -165,49 +168,4 @@ khung_gio_24h = [f"{i:02d}:00" for i in range(24)]
         
         with col_input:
             st.markdown("### 📝 Chọn khung giờ")
-            with st.form("form_24h"):
-                ngay_chon = st.date_input("Chọn ngày", min_value=datetime.now().date())
-                
-                # CHỌN NHIỀU GIỜ CÙNG LÚC
-                gio_da_chon = st.multiselect(
-                    "Chọn các khung giờ (có thể chọn nhiều)", 
-                    options=khung_gio_24h,
-                    help="Nhấp để chọn các khung giờ bạn định sử dụng Lab"
-                )
-                
-                thiet_bi = st.selectbox("Thiết bị sử dụng", df['Tên'].tolist() if not df.empty else ["Bàn lab"])
-                ghi_chu = st.text_input("Ghi chú thí nghiệm", placeholder="VD: Ủ nhiệt mẫu Cu2O...")
-                
-                btn_luu = st.form_submit_button("🔥 Xác nhận đăng ký")
-                
-                if btn_luu:
-                    if not gio_da_chon:
-                        st.warning("Bạn chưa chọn khung giờ nào!")
-                    elif not ghi_chu:
-                        st.warning("Vui lòng nhập mục đích!")
-                    else:
-                        # Ghi từng khung giờ thành một dòng riêng trong Sheets để dễ quản lý
-                        ngay_str = ngay_chon.strftime("%d/%m/%Y")
-                        for gio in gio_da_chon:
-                            sheet_lichtuan.append_row([ngay_str, gio, st.session_state['ho_ten'], thiet_bi, ghi_chu])
-                        
-                        st.success(f"✅ Đã đăng ký thành công {len(gio_da_chon)} khung giờ!")
-                        st.rerun()
-
-        with col_view:
-            st.markdown("### 📋 Lịch trình chi tiết")
-            df_24h = load_data(sheet_lichtuan)
-            
-            if not df_24h.empty:
-                # Lọc lịch của ngày đang chọn để xem cho đỡ rối
-                filter_date = ngay_chon.strftime("%d/%m/%Y")
-                df_day = df_24h[df_24h['Ngày'] == filter_date]
-                
-                if not df_day.empty:
-                    # Sắp xếp theo giờ từ sớm đến muộn
-                    df_day = df_day.sort_values(by="Ca làm việc")
-                    st.dataframe(df_day, use_container_width=True, hide_index=True)
-                else:
-                    st.info(f"Ngày {filter_date} hiện chưa có ai đăng ký.")
-            else:
-                st.info("Chưa có dữ liệu lịch trình.")
+            # ... (Tiếp tục các dòng code bên trong, nhớ thụt đầu dòng thêm 1 mức nữa)
