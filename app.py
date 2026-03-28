@@ -8,37 +8,42 @@ import base64
 # --- 1. CẤU HÌNH TRANG ---
 st.set_page_config(page_title="Hệ thống Quản lý Lab", layout="wide")
 
-# --- 2. HÀM GIẢI MÃ VÀ KẾT NỐI ---
+# --- 2. HÀM KẾT NỐI SIÊU CẤP ---
 def get_gspread_client():
     try:
-        # Ưu tiên cách Base64 vì nó cực kỳ ổn định
         if "BASE64_CREDS" in st.secrets:
+            # Giải mã Base64
             b64_str = st.secrets["BASE64_CREDS"]
-            decoded_data = base64.b64decode(b64_str).decode('utf-8')
-            creds_dict = json.loads(decoded_data)
+            decoded_bytes = base64.b64decode(b64_str)
+            creds_dict = json.loads(decoded_bytes)
             
-            # Tự động sửa lỗi dấu xuống dòng trong private_key
+            # CHỖ NÀY CỰC KỲ QUAN TRỌNG: Sửa lỗi Signature
             if "private_key" in creds_dict:
-                creds_dict["private_key"] = creds_dict["private_key"].replace("\\n", "\n")
+                # Thay thế các dấu xuống dòng bị lỗi
+                pk = creds_dict["private_key"]
+                if "\\n" in pk:
+                    creds_dict["private_key"] = pk.replace("\\n", "\n")
             
             return gspread.service_account_from_dict(creds_dict)
         else:
-            # Dự phòng chạy ở máy tính cá nhân
+            # Nếu chạy ở máy tính (Local)
             return gspread.service_account(filename='credentials.json')
     except Exception as e:
-        st.error(f"❌ Lỗi giải mã chìa khóa: {e}")
+        st.error(f"❌ Lỗi xử lý chìa khóa: {e}")
         st.stop()
 
 # --- 3. KHỞI TẠO KẾT NỐI ---
 try:
     gc = get_gspread_client()
-    sh = gc.open("Quan_ly_lab")
+    sh = gc.open("Quan_ly_lab") # Đảm bảo tên file Sheets đúng 100%
     sheet_thietbi = sh.worksheet("ThietBi")
     sheet_lichsu = sh.worksheet("LichSu")
     sheet_taikhoan = sh.worksheet("TaiKhoan") 
 except Exception as e:
     st.error(f"❌ Lỗi kết nối Google Sheets: {e}")
     st.stop()
+
+# ... (Các phần code Login và Mượn/Trả phía dưới giữ nguyên)
 
 # --- 4. HÀM TẢI DỮ LIỆU ---
 def load_data(sheet):
