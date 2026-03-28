@@ -2,23 +2,38 @@ import streamlit as st
 import pandas as pd
 import gspread
 from datetime import datetime
+import json # Đảm bảo có thư viện này để xử lý dữ liệu
 
-# --- CẤU HÌNH TRANG ---
+# --- 1. CẤU HÌNH TRANG ---
 st.set_page_config(page_title="Hệ thống Quản lý Lab", layout="wide")
 
-# --- KẾT NỐI GOOGLE SHEETS ---
-# Dùng file credentials.json đang để cùng thư mục để đăng nhập
-gc = gspread.service_account(filename='credentials.json')
+# --- 2. DÁN ĐOẠN MÃ KẾT NỐI VÀO ĐÂY ---
+def connect_to_gsheets():
+    # Kiểm tra xem "my_creds" đã được dán vào ô Secrets chưa
+    if "my_creds" in st.secrets:
+        creds_dict = dict(st.secrets["my_creds"])
+        # Vá lỗi ký tự xuống dòng quan trọng để tránh lỗi JWT Signature
+        creds_dict["private_key"] = creds_dict["private_key"].replace("\\n", "\n")
+        return gspread.service_account_from_dict(creds_dict)
+    else:
+        st.error("❌ Không tìm thấy 'my_creds' trong Secrets!")
+        st.stop()
 
-# Mở file Google Sheets (Thay 'Quản lý Lab' bằng tên chính xác file của bạn)
+# --- 3. KHỞI TẠO KẾT NỐI (GỌI HÀM VỪA DÁN) ---
 try:
-    sh = gc.open("Quan_ly_lab")
+    gc = connect_to_gsheets()
+    sh = gc.open("Quan_ly_lab") # Tên file Sheets trên Drive
     sheet_thietbi = sh.worksheet("ThietBi")
     sheet_lichsu = sh.worksheet("LichSu")
+    sheet_taikhoan = sh.worksheet("TaiKhoan")
 except Exception as e:
-    st.error("❌ Không thể kết nối với Google Sheets. Vui lòng kiểm tra lại file credentials.json và quyền chia sẻ (Share) của file Sheets.")
+    st.error(f"❌ Lỗi kết nối dữ liệu: {e}")
     st.stop()
 
+# --- 4. CÁC PHẦN TIẾP THEO (LOGIN, GIAO DIỆN...) ---
+# (Phần code hiển thị danh sách thiết bị nghiên cứu ZnO, Cu2O của bạn...)
+# --- LOGIC ĐĂNG NHẬP & QUẢN LÝ ---
+# (Sử dụng session_state để quản lý trạng thái đăng nhập như bạn đã viết)
 # --- HÀM TẢI DỮ LIỆU ---
 def load_data():
     # Lấy toàn bộ dữ liệu từ sheet Thiết bị
