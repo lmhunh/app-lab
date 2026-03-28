@@ -11,6 +11,7 @@ st.set_page_config(page_title="Hệ thống Quản lý Lab", layout="wide")
 try:
     if "google_sheets_creds" in st.secrets:
         creds_dict = json.loads(st.secrets["google_sheets_creds"])
+        creds_dict = json.loads(creds_json)
         gc = gspread.service_account_from_dict(creds_dict)
     else:
         gc = gspread.service_account(filename='credentials.json')
