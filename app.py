@@ -5,63 +5,60 @@ from datetime import datetime, timedelta, timezone, time as dt_time
 import time
 
 # ==========================================
-# 1. CẤU HÌNH & KẾT NỐI (GMT+7)
+# 1. CẤU HÌNH & KẾT NỐI (BỌC THÉP CHỐNG LỖI 429)
 # ==========================================
-st.set_page_config(page_title="Hệ thống Lab (Google Calendar Style)", page_icon="📅", layout="wide")
+st.set_page_config(page_title="Hệ thống Lab (Pro Version)", page_icon="📅", layout="wide")
 
 VN_TZ = timezone(timedelta(hours=7))
 
 def get_now():
     return datetime.now(VN_TZ)
 
-# Hàm phân tích thời gian thông minh (Hỗ trợ gõ 14:30 hoặc 1430)
 def parse_time(t_str):
     t_str = str(t_str).strip()
     try:
-        if ":" in t_str:
-            return datetime.strptime(t_str, "%H:%M").time()
-        elif len(t_str) == 4:
-            return datetime.strptime(t_str, "%H%M").time()
-        elif len(t_str) == 3: # Gõ 930 thành 09:30
-            return datetime.strptime(f"0{t_str}", "%H%M").time()
-        elif len(t_str) in [1, 2]: # Gõ 9 thành 09:00
-            return dt_time(int(t_str), 0)
-    except:
-        return None
+        if ":" in t_str: return datetime.strptime(t_str, "%H:%M").time()
+        elif len(t_str) == 4: return datetime.strptime(t_str, "%H%M").time()
+        elif len(t_str) == 3: return datetime.strptime(f"0{t_str}", "%H%M").time()
+        elif len(t_str) in [1, 2]: return dt_time(int(t_str), 0)
+    except: return None
     return None
 
-@st.cache_resource
-def connect_to_gsheets():
+# ĐÂY LÀ CHÌA KHÓA CHỐNG 429: Cache toàn bộ kết nối và Object Sheets (Lưu 1 tiếng)
+@st.cache_resource(ttl=3600)
+def init_google_sheets():
     try:
         creds_dict = dict(st.secrets["my_creds"])
         if "private_key" in creds_dict:
-            pk = creds_dict["private_key"].strip().replace("\\n", "\n")
-            creds_dict["private_key"] = pk
-        return gspread.service_account_from_dict(creds_dict)
+            creds_dict["private_key"] = creds_dict["private_key"].strip().replace("\\n", "\n")
+        gc = gspread.service_account_from_dict(creds_dict)
+        sh = gc.open("Quan_ly_lab") 
+        # Lấy tất cả các sheet 1 lần duy nhất và cất vào Cache
+        return {
+            "ThietBi": sh.worksheet("ThietBi"),
+            "TaiKhoan": sh.worksheet("TaiKhoan"),
+            "LichSu": sh.worksheet("LichSu"),
+            "LichTuan": sh.worksheet("LichTuan")
+        }
     except Exception as e:
-        st.error(f"❌ Lỗi Secrets: {e}")
+        st.error(f"❌ Lỗi kết nối Google Sheets: {e}")
         st.stop()
 
-try:
-    gc = connect_to_gsheets()
-    sh = gc.open("Quan_ly_lab") 
-    sheet_thietbi = sh.worksheet("ThietBi")
-    sheet_taikhoan = sh.worksheet("TaiKhoan")
-    sheet_lichsu = sh.worksheet("LichSu")
-    sheet_lichtuan = sh.worksheet("LichTuan")
-except Exception as e:
-    st.error(f"❌ Lỗi kết nối Sheets: {e}")
-    st.stop()
+# Gọi dữ liệu từ Cache Két Sắt
+sheets = init_google_sheets()
+sheet_thietbi = sheets["ThietBi"]
+sheet_taikhoan = sheets["TaiKhoan"]
+sheet_lichsu = sheets["LichSu"]
+sheet_lichtuan = sheets["LichTuan"]
 
+# Đọc bảng dữ liệu (Lưu Cache 15 giây)
 @st.cache_data(ttl=15, show_spinner=False)
 def load_data(sheet_name):
     try:
-        sheet = sh.worksheet(sheet_name)
-        return pd.DataFrame(sheet.get_all_records())
+        return pd.DataFrame(sheets[sheet_name].get_all_records())
     except gspread.exceptions.APIError:
-        time.sleep(2)
-        sheet = sh.worksheet(sheet_name)
-        return pd.DataFrame(sheet.get_all_records())
+        time.sleep(2) # Giảm xóc 2 giây nếu Google quá tải
+        return pd.DataFrame(sheets[sheet_name].get_all_records())
 
 # ==========================================
 # 2. ROBOT TỰ ĐỘNG THU HỒI
@@ -163,7 +160,7 @@ else:
         with c_filter:
             view_mode = st.selectbox("Chọn thiết bị để xem lịch:", all_devices if all_devices else ["Chưa có dữ liệu"])
         
-        # 1. THẺ TRẠNG THÁI NHANH
+        # Thẻ trạng thái nhanh
         if not df_tb.empty and view_mode in df_tb['Tên'].values:
             current_status = df_tb[df_tb['Tên'] == view_mode].iloc[0]['Trạng thái']
             current_user = df_tb[df_tb['Tên'] == view_mode].iloc[0].get('Người sử dụng', '')
@@ -183,10 +180,10 @@ else:
 
         st.write("") 
 
-        # 2. MA TRẬN GOOGLE CALENDAR STYLE
+        # Ma trận Google Calendar Style
         with st.expander("👉 Mở Lịch tuần (Click vào ô để xem chi tiết)", expanded=True):
             df_matrix_data = df_lich_view[df_lich_view['Thiết bị'] == view_mode] if not df_lich_view.empty else pd.DataFrame()
-            matrix = pd.DataFrame(" ", index=khung_gio_24h, columns=days_7) # Để trống mặc định cho giống Calendar
+            matrix = pd.DataFrame(" ", index=khung_gio_24h, columns=days_7)
             
             if not df_matrix_data.empty:
                 for _, r in df_matrix_data.iterrows():
@@ -201,9 +198,7 @@ else:
                                 block_start = dt_time(h, 0)
                                 block_end = dt_time(h, 59)
                                 
-                                # Nếu khoảng thời gian đăng ký đè lên block 1 tiếng này
                                 if s_time <= block_end and block_start <= e_time:
-                                    # Hiển thị dạng Block sự kiện giống Google Calendar
                                     block_text = f"🔷 {s_time.strftime('%H:%M')} - {e_time.strftime('%H:%M')}"
                                     current_val = matrix.at[f"{h:02d}:00", str(r['Ngày'])]
                                     if "🔷" in current_val:
@@ -254,7 +249,7 @@ else:
             
         st.markdown("---")
         
-        # 3. FORM GÕ THỜI GIAN TRỰC TIẾP
+        # Form Đặt Lịch
         st.markdown(f"### 📝 Đặt lịch thiết bị: **{view_mode}**")
         with st.form("smart_booking"):
             st.info("💡 **Mẹo:** Bạn có thể gõ trực tiếp thời gian (Ví dụ: `14:30`, `1430` hoặc `9`).")
@@ -265,102 +260,6 @@ else:
             with c2: 
                 is_now = st.checkbox("Sử dụng BÂY GIỜ", value=True)
                 if not is_now:
-                    # Chuyển thành text_input để gõ tự do
                     t_start_input = st.text_input("⏳ Từ lúc:", placeholder="VD: 14:30")
                 else:
-                    t_start_input = get_now().strftime('%H:%M')
-                    st.text_input("⏳ Từ lúc (Tự động):", value=t_start_input, disabled=True)
-            with c3: 
-                t_end_input = st.text_input("⏳ Đến lúc:", placeholder="VD: 16:45", value=(get_now() + timedelta(hours=1)).strftime('%H:%M'))
-            with c4: 
-                note = st.text_input("Mục đích (VD: Khảo sát màng Cu2O)")
-            
-            st.markdown("---")
-            btn_submit = st.form_submit_button("🔥 Xác nhận Lịch")
-            
-            if btn_submit:
-                # Phân tích chuỗi gõ tay thành thời gian chuẩn
-                t_start = parse_time(t_start_input)
-                t_end = parse_time(t_end_input)
-
-                if not t_start:
-                    st.error("❌ Lỗi: Thời gian 'Từ lúc' không hợp lệ! Vui lòng gõ định dạng HH:MM (VD: 14:30).")
-                    st.stop()
-                if not t_end:
-                    st.error("❌ Lỗi: Thời gian 'Đến lúc' không hợp lệ!")
-                    st.stop()
-
-                d_str = d_pick.strftime("%d/%m/%Y")
-                today_str = get_now().strftime("%d/%m/%Y")
-                
-                if t_end <= t_start:
-                    st.error("❌ Lỗi: Giờ kết thúc phải lớn hơn giờ bắt đầu!")
-                    st.stop()
-                
-                if d_str == today_str and t_start < get_now().time() and not is_now:
-                    st.error(f"⏳ Lỗi: Không thể đặt giờ trong quá khứ!")
-                    st.stop()
-                
-                sheet_lich_rt = sh.worksheet("LichTuan")
-                df_lich_rt = pd.DataFrame(sheet_lich_rt.get_all_records())
-                
-                # THUẬT TOÁN KIỂM TRA TRÙNG LỊCH THEO PHÚT
-                conflict_found = []
-                if not df_lich_rt.empty:
-                    df_day_device = df_lich_rt[(df_lich_rt['Ngày'] == d_str) & (df_lich_rt['Thiết bị'] == view_mode)]
-                    for _, row in df_day_device.iterrows():
-                        try:
-                            exist_start = parse_time(row['Ca làm việc'].split(" - ")[0])
-                            exist_end = parse_time(row['Ca làm việc'].split(" - ")[1])
-                            
-                            # Kiểm tra giao cắt thời gian
-                            if t_start < exist_end and exist_start < t_end:
-                                conflict_found.append(f"{row['Ca làm việc']} (bởi {row['Người sử dụng']})")
-                        except: pass
-
-                if conflict_found: 
-                    st.error(f"❌ Rất tiếc, {view_mode} đã kẹt lịch vào lúc: {', '.join(conflict_found)}")
-                else:
-                    ca_lam_viec_str = f"{t_start.strftime('%H:%M')} - {t_end.strftime('%H:%M')}"
-                    sheet_lichtuan.append_row([d_str, ca_lam_viec_str, st.session_state['ho_ten'], view_mode, note])
-                    
-                    if is_now and d_str == today_str:
-                        cell = sheet_thietbi.find(view_mode)
-                        sheet_thietbi.update_cell(cell.row, 3, "Đang mượn")
-                        sheet_thietbi.update_cell(cell.row, 4, st.session_state['ho_ten'])
-                        sheet_lichsu.append_row([get_now().strftime("%d/%m/%Y %H:%M:%S"), st.session_state['ho_ten'], f"Mượn trực tiếp ({ca_lam_viec_str})", view_mode])
-                        st.success(f"✅ Đã ghi nhận mượn {view_mode}. Lịch sẽ tự động thu hồi lúc {t_end.strftime('%H:%M')}.")
-                    else:
-                        sheet_lichsu.append_row([get_now().strftime("%d/%m/%Y %H:%M:%S"), st.session_state['ho_ten'], f"Đặt lịch ({d_str} {ca_lam_viec_str})", view_mode])
-                        st.success("✅ Đã chốt lịch thành công lên Calendar!")
-                        
-                    load_data.clear() 
-                    st.rerun()
-
-    # --- TAB 3 & 4 (GIỮ NGUYÊN) ---
-    with tab3:
-        st.subheader("Lịch sử hoạt động")
-        df_h = load_data("LichSu")
-        if not df_h.empty: st.dataframe(df_h.iloc[::-1], use_container_width=True, hide_index=True)
-
-    with tab4:
-        st.subheader("🔄 Hoàn trả thủ công & Ghi chú tình trạng")
-        if "Người sử dụng" in df_tb.columns:
-            my_list = df_tb[df_tb["Người sử dụng"] == st.session_state['ho_ten']]['Tên'].tolist()
-            if not my_list: st.success("Bạn hiện không giữ thiết bị nào.")
-            else:
-                with st.form("return_form"):
-                    dev_ret = st.selectbox("Thiết bị đang giữ", my_list)
-                    return_note = st.text_input("Ghi chú sau khi dùng (VD: Máy chạy tốt, Đã vệ sinh...)")
-                    
-                    if st.form_submit_button("Xác nhận Trả"):
-                        cell = sheet_thietbi.find(dev_ret)
-                        sheet_thietbi.update_cell(cell.row, 3, "Sẵn sàng")
-                        sheet_thietbi.update_cell(cell.row, 4, "")
-                        
-                        action_str = f"Hoàn trả (Ghi chú: {return_note})" if return_note else "Hoàn trả"
-                        sheet_lichsu.append_row([get_now().strftime("%d/%m/%Y %H:%M:%S"), st.session_state['ho_ten'], action_str, dev_ret])
-                        
-                        st.success(f"✅ Đã trả {dev_ret}.")
-                        load_data.clear() 
-                        st.rerun()
+                    t_start_input = get_
