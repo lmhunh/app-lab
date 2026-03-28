@@ -89,8 +89,7 @@ def auto_return_devices():
                         cell = sheet_thietbi.find(device)
                         sheet_thietbi.update_cell(cell.row, 3, "Sẵn sàng")
                         sheet_thietbi.update_cell(cell.row, 4, "")
-                        # Ghi vào Lịch sử (5 cột)
-                        sheet_lichsu.append_row([now.strftime("%d/%m/%Y %H:%M:%S"), "🤖 Hệ thống", "Thu hồi tự động", device, "Hết giờ"])
+                        sheet_lichsu.append_row([now.strftime("%d/%m/%Y %H:%M:%S"), "🤖 Hệ thống", "Thu hồi tự động", device, "Hết giờ mượn"])
                         has_changes = True
         if has_changes:
             load_data.clear() 
@@ -154,19 +153,19 @@ else:
         st.subheader("Tình trạng thiết bị hiện tại")
         st.info("💡 Bảng này luôn cập nhật tình trạng mới nhất của thiết bị dựa trên ghi chú của người trả máy trước đó.")
         if not df_tb.empty:
+            # FIX LỖI MÀU CHỮ (Ép màu đen trên nền hồng)
             def highlight_status(row):
-                if row['Trạng thái'] == 'Đang mượn': return ['background-color: #fdecea'] * len(row)
+                if row['Trạng thái'] == 'Đang mượn': return ['background-color: #fdecea; color: #000000; font-weight: bold;'] * len(row)
                 return [''] * len(row)
             st.dataframe(df_tb.style.apply(highlight_status, axis=1), use_container_width=True, hide_index=True)
 
-    # --- TAB 2: ĐĂNG KÝ (GIAO DIỆN DROPDOWN & 2 NÚT) ---
+    # --- TAB 2: ĐĂNG KÝ VỚI 1 NÚT DUY NHẤT ---
     with tab2:
         st.subheader("📅 Kiểm tra và Đăng ký thiết bị")
         c_filter, _ = st.columns([1, 2])
         with c_filter:
             view_mode = st.selectbox("🔍 Chọn thiết bị để thao tác:", all_devices if all_devices else ["Chưa có dữ liệu"])
         
-        # Thẻ trạng thái
         if not df_tb.empty and view_mode in df_tb['Tên'].values:
             current_status = df_tb[df_tb['Tên'] == view_mode].iloc[0]['Trạng thái']
             current_user = df_tb[df_tb['Tên'] == view_mode].iloc[0].get('Người sử dụng', '')
@@ -182,7 +181,7 @@ else:
 
         st.write("") 
 
-        # VẼ TIMELINE (ĐÃ FIX LỖI)
+        # VẼ TIMELINE
         with st.expander(f"👉 Mở Timeline Lịch tuần của [{view_mode}]", expanded=True):
             df_dev = df_lich_view[df_lich_view['Thiết bị'] == view_mode] if not df_lich_view.empty else pd.DataFrame()
             if not df_dev.empty:
@@ -216,7 +215,7 @@ else:
                                 user = r['Người sử dụng']
                                 is_me = user == st.session_state.get('ho_ten', '')
                                 color = "#1a73e8" if is_me else "#ea4335"
-                                tooltip = f"⌚ {s_str} - {e_str} | 👤 {user}"
+                                tooltip = f"⌚ {s_str} - {e_str} | 👤 {user} | 📝 {r.get('Mục đích', '')}"
                                 display_text = f"{s_str}-{e_str} ({user})" if width_pct >= 10 else "..."
                                 block_html = f"<div title='{tooltip}' style='position: absolute; left: {left_pct}%; width: {width_pct}%; height: 100%; background-color: {color}; border-radius: 3px; color: white; font-size: 11px; display: flex; align-items: center; justify-content: center; overflow: hidden; white-space: nowrap; box-shadow: 0 2px 4px rgba(0,0,0,0.2); cursor: pointer; transition: 0.2s; z-index: 2;'><span style='padding: 0 5px;'>{display_text}</span></div>"
                                 html_timeline += block_html
@@ -227,26 +226,28 @@ else:
             
         st.markdown("---")
         
-        # FORM ĐĂNG KÝ VỚI DROPDOWN VÀ 2 NÚT BẤM (Giống hệt Hình 1)
+        # FORM ĐĂNG KÝ VỚI 1 NÚT XÁC NHẬN CHUNG
         st.markdown(f"### 📝 Thời gian sử dụng thiết bị: **{view_mode}**")
         with st.form("smart_booking"):
             c1, c2, c3, c4 = st.columns([1.5, 1, 1, 2])
             with c1: 
                 d_pick = st.date_input("🗓️ Chọn ngày", min_value=today)
             with c2: 
-                t_start_str = st.selectbox("⏳ Từ lúc:", time_options)
+                # Tự động focus mốc thời gian gần nhất
+                now_minute = get_now().minute
+                nearest_quarter = (now_minute // 15) * 15
+                default_idx = get_now().hour * 4 + (nearest_quarter // 15)
+                t_start_str = st.selectbox("⏳ Từ lúc:", time_options, index=default_idx)
             with c3: 
-                t_end_str = st.selectbox("⏳ Đến lúc:", time_options, index=4) # Mặc định là 01:00
+                t_end_str = st.selectbox("⏳ Đến lúc:", time_options, index=min(default_idx + 4, 95)) # Mặc định mượn 1 tiếng
             with c4: 
                 note = st.text_input("Mục đích (VD: Đo phổ ZnO)")
             
             st.markdown("---")
-            c_sub, c_now = st.columns(2)
-            with c_sub: btn_book = st.form_submit_button("📅 Xác nhận Đặt lịch (Tương lai)")
-            with c_now: btn_use_now = st.form_submit_button("⚡ Mượn ngay (Hiện tại)")
+            # GỘP 2 NÚT THÀNH 1 NÚT THÔNG MINH
+            btn_submit = st.form_submit_button("🔥 Xác nhận")
             
-            # --- XỬ LÝ ĐẶT LỊCH TRƯỚC ---
-            if btn_book:
+            if btn_submit:
                 t_start = parse_time(t_start_str)
                 t_end = parse_time(t_end_str)
                 d_str = d_pick.strftime("%d/%m/%Y")
@@ -257,8 +258,8 @@ else:
                     st.error("❌ Lỗi: Giờ kết thúc phải lớn hơn giờ bắt đầu!")
                     st.stop()
                 
-                if d_str == today_str and t_start < current_t:
-                    st.error(f"⏳ Lỗi: Không thể đặt giờ trong quá khứ!")
+                if d_str == today_str and t_end <= current_t:
+                    st.error(f"⏳ Lỗi: Khoảng thời gian ({t_start_str} - {t_end_str}) này đã nằm hoàn toàn trong quá khứ!")
                     st.stop()
                 
                 df_lich_rt = pd.DataFrame(sheet_lichtuan.get_all_records())
@@ -280,67 +281,30 @@ else:
                     ca_lam_viec_str = f"{t_start_str} - {t_end_str}"
                     sheet_lichtuan.append_row([d_str, ca_lam_viec_str, st.session_state['ho_ten'], view_mode, note])
                     
-                    # Ghi Lịch sử với 5 CỘT (Cột 5 là Ghi chú/Mục đích)
-                    sheet_lichsu.append_row([get_now().strftime("%d/%m/%Y %H:%M:%S"), st.session_state['ho_ten'], f"Đặt lịch ({ca_lam_viec_str})", view_mode, note])
+                    # LOGIC KIỂM TRA MƯỢN NGAY (Giờ hiện tại nằm trong khung được chọn)
+                    is_active_now = (d_str == today_str) and (t_start <= current_t <= t_end)
                     
-                    st.success(f"✅ Đã chốt lịch sử dụng {view_mode} thành công!")
+                    if is_active_now:
+                        cell = sheet_thietbi.find(view_mode)
+                        sheet_thietbi.update_cell(cell.row, 3, "Đang mượn")
+                        sheet_thietbi.update_cell(cell.row, 4, st.session_state['ho_ten'])
+                        # Lịch sử 5 cột
+                        sheet_lichsu.append_row([get_now().strftime("%d/%m/%Y %H:%M:%S"), st.session_state['ho_ten'], f"Sử dụng trực tiếp ({ca_lam_viec_str})", view_mode, note])
+                        st.success(f"✅ Đã kích hoạt mượn ngay {view_mode}. Máy sẽ tự động thu hồi lúc {t_end_str}.")
+                    else:
+                        sheet_lichsu.append_row([get_now().strftime("%d/%m/%Y %H:%M:%S"), st.session_state['ho_ten'], f"Đặt lịch ({ca_lam_viec_str})", view_mode, note])
+                        st.success(f"✅ Đã chốt lịch sử dụng {view_mode} thành công!")
+                        
                     load_data.clear() 
                     st.rerun()
 
-            # --- XỬ LÝ MƯỢN NGAY ---
-            if btn_use_now:
-                d_str = d_pick.strftime("%d/%m/%Y")
-                today_str = get_now().strftime("%d/%m/%Y")
-                
-                if d_str != today_str:
-                    st.error("❌ Lỗi: Bạn đang chọn ngày khác. Tính năng 'Mượn ngay' chỉ áp dụng cho hôm nay!")
-                    st.stop()
-
-                current_t = get_now().time()
-                t_start_str_now = get_now().strftime('%H:%M')
-                t_end = parse_time(t_end_str)
-                
-                if t_end <= current_t:
-                    st.error(f"❌ Lỗi: Giờ kết thúc ({t_end_str}) phải lớn hơn giờ hiện tại ({t_start_str_now})!")
-                    st.stop()
-                
-                df_lich_rt = pd.DataFrame(sheet_lichtuan.get_all_records())
-                conflict_found = []
-                if not df_lich_rt.empty:
-                    df_day_device = df_lich_rt[(df_lich_rt['Ngày'] == d_str) & (df_lich_rt['Thiết bị'] == view_mode)]
-                    for _, row in df_day_device.iterrows():
-                        try:
-                            exist_start = parse_time(row['Ca làm việc'].split(" - ")[0])
-                            exist_end = parse_time(row['Ca làm việc'].split(" - ")[1])
-                            if current_t < exist_end and exist_start < t_end:
-                                if row['Người sử dụng'] != st.session_state['ho_ten']:
-                                    conflict_found.append(f"{row['Ca làm việc']} (bởi {row['Người sử dụng']})")
-                        except: pass
-
-                if conflict_found: 
-                    st.error(f"❌ Rất tiếc, {view_mode} đang kẹt lịch của người khác:\n" + "\n".join([f"- {c}" for c in conflict_found]))
-                else:
-                    ca_lam_viec_str = f"{t_start_str_now} - {t_end_str}"
-                    sheet_lichtuan.append_row([d_str, ca_lam_viec_str, st.session_state['ho_ten'], view_mode, note])
-                    
-                    cell = sheet_thietbi.find(view_mode)
-                    sheet_thietbi.update_cell(cell.row, 3, "Đang mượn")
-                    sheet_thietbi.update_cell(cell.row, 4, st.session_state['ho_ten'])
-                    
-                    # Ghi Lịch sử với 5 CỘT (Cột 5 là Ghi chú/Mục đích)
-                    sheet_lichsu.append_row([get_now().strftime("%d/%m/%Y %H:%M:%S"), st.session_state['ho_ten'], f"Mượn ngay ({ca_lam_viec_str})", view_mode, note])
-                    
-                    st.success(f"✅ Đã kích hoạt sử dụng {view_mode}. Máy sẽ tự động thu hồi lúc {t_end_str}.")
-                    load_data.clear() 
-                    st.rerun()
-
-    # --- TAB 3: LỊCH SỬ HIỂN THỊ CỘT GHI CHÚ RÕ RÀNG ---
+    # --- TAB 3: LỊCH SỬ ---
     with tab3:
         st.subheader("Lịch sử hoạt động")
         df_h = load_data("LichSu")
         if not df_h.empty: st.dataframe(df_h.iloc[::-1], use_container_width=True, hide_index=True)
 
-    # --- TAB 4: TRẢ THIẾT BỊ VÀ ĐẨY GHI CHÚ VÀO CẢ 2 BẢNG ---
+    # --- TAB 4: TRẢ THIẾT BỊ SỚM (NHẢ SLOT LỊCH TUẦN) ---
     with tab4:
         st.subheader("🔄 Hoàn trả & Ghi chú tình trạng thiết bị")
         if "Người sử dụng" in df_tb.columns:
@@ -353,22 +317,42 @@ else:
                     return_note = st.text_input("📝 Ghi chú tình trạng (VD: Lò nung gia nhiệt ổn định, Lạch cạch...)")
                     
                     if st.form_submit_button("Xác nhận Trả"):
+                        # 1. Trả trạng thái Sẵn sàng ở Bảng Thiết bị
                         cell = sheet_thietbi.find(dev_ret)
-                        
-                        # 1. Update trạng thái Sẵn sàng
                         sheet_thietbi.update_cell(cell.row, 3, "Sẵn sàng")
                         sheet_thietbi.update_cell(cell.row, 4, "")
                         
-                        # 2. ĐẨY LÊN CỘT "GHI CHÚ" BẢNG THIẾT BỊ
+                        # Đẩy lên cột "Ghi chú" Bảng Thiết bị
                         if "Ghi chú" in df_tb.columns:
                             note_col_index = df_tb.columns.get_loc("Ghi chú") + 1
                         else:
                             note_col_index = 5 
                         sheet_thietbi.update_cell(cell.row, note_col_index, return_note)
                         
-                        # 3. ĐẨY LÊN CỘT "GHI CHÚ" BẢNG LỊCH SỬ (Tách biệt làm cột số 5)
-                        sheet_lichsu.append_row([get_now().strftime("%d/%m/%Y %H:%M:%S"), st.session_state['ho_ten'], "Hoàn trả", dev_ret, return_note])
+                        # 2. XÓA SLOT/CẮT NGẮN THỜI GIAN TRONG MA TRẬN LỊCH TUẦN ĐỂ NHẢ CHỖ
+                        today_str = get_now().strftime("%d/%m/%Y")
+                        curr_t = get_now().time()
+                        curr_str = get_now().strftime("%H:%M")
                         
-                        st.success(f"✅ Đã trả thành công {dev_ret}. Ghi chú đã được đưa vào Lịch sử!")
+                        records = sheet_lichtuan.get_all_records()
+                        for i, r in enumerate(records):
+                            if str(r['Thiết bị']) == dev_ret and str(r['Người sử dụng']) == st.session_state['ho_ten'] and str(r['Ngày']) == today_str:
+                                ca = str(r['Ca làm việc'])
+                                if " - " in ca:
+                                    s_str, e_str = ca.split(" - ")
+                                    s_t = parse_time(s_str)
+                                    e_t = parse_time(e_str)
+                                    
+                                    # Tìm đúng khung giờ đang chạy để cắt lại bằng giờ hiện tại
+                                    if s_t and e_t and s_t <= curr_t <= e_t:
+                                        new_ca = f"{s_str} - {curr_str}"
+                                        # update_cell(Row, Col, Value). Row index trong gspread = list_index + 2
+                                        sheet_lichtuan.update_cell(i + 2, 2, new_ca) 
+                        
+                        # 3. Ghi vào Lịch sử
+                        action_str = f"Trả sớm"
+                        sheet_lichsu.append_row([get_now().strftime("%d/%m/%Y %H:%M:%S"), st.session_state['ho_ten'], action_str, dev_ret, return_note])
+                        
+                        st.success(f"✅ Đã trả {dev_ret} thành công. Lịch tuần đã được cập nhật để giải phóng máy cho người khác!")
                         load_data.clear() 
                         st.rerun()
