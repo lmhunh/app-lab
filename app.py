@@ -7,7 +7,7 @@ import time
 # ==========================================
 # 1. CẤU HÌNH & KẾT NỐI
 # ==========================================
-st.set_page_config(page_title="Hệ thống Lab (Interactive)", page_icon="⏱️", layout="wide")
+st.set_page_config(page_title="Hệ thống Lab (Anti-429)", page_icon="⏱️", layout="wide")
 
 @st.cache_resource
 def connect_to_gsheets():
@@ -32,21 +32,24 @@ except Exception as e:
     st.error(f"❌ Lỗi kết nối Sheets: {e}")
     st.stop()
 
-def load_data(sheet):
-    """Thêm cơ chế chống lỗi API (Too Many Requests) của Google Sheets"""
+# BỘ NHỚ ĐỆM "THẦN THÁNH": Lưu dữ liệu 15 giây để chống lỗi 429
+@st.cache_data(ttl=15, show_spinner=False)
+def load_data(sheet_name):
     try:
+        sheet = sh.worksheet(sheet_name)
         return pd.DataFrame(sheet.get_all_records())
     except gspread.exceptions.APIError:
-        time.sleep(2) # Đợi 2 giây rồi thử lại nếu bị Google chặn
+        time.sleep(2)
+        sheet = sh.worksheet(sheet_name)
         return pd.DataFrame(sheet.get_all_records())
 
 # ==========================================
 # 2. ROBOT TỰ ĐỘNG THU HỒI
 # ==========================================
-def auto_return_devices(sheet_tb, sheet_lich, sheet_ls):
+def auto_return_devices():
     try:
-        df_tb = load_data(sheet_tb)
-        df_lich = load_data(sheet_lich)
+        df_tb = load_data("ThietBi")
+        df_lich = load_data("LichTuan")
         if df_tb.empty or df_lich.empty: return
         
         now = datetime.now()
@@ -55,6 +58,8 @@ def auto_return_devices(sheet_tb, sheet_lich, sheet_ls):
         
         df_today = df_lich[df_lich['Ngày'] == today_str]
         if df_today.empty: return
+        
+        has_changes = False
 
         for _, row in df_tb.iterrows():
             if row.get('Trạng thái') == 'Đang mượn':
@@ -65,10 +70,14 @@ def auto_return_devices(sheet_tb, sheet_lich, sheet_ls):
                 if not user_bookings.empty:
                     booked_hours = [int(ca.split(":")[0]) for ca in user_bookings['Ca làm việc'] if ":" in str(ca)]
                     if booked_hours and current_hour >= (max(booked_hours) + 1):
-                        cell = sheet_tb.find(device)
-                        sheet_tb.update_cell(cell.row, 3, "Sẵn sàng")
-                        sheet_tb.update_cell(cell.row, 4, "")
-                        sheet_ls.append_row([now.strftime("%d/%m/%Y %H:%M:%S"), "🤖 Hệ thống", "Thu hồi tự động", device])
+                        cell = sheet_thietbi.find(device)
+                        sheet_thietbi.update_cell(cell.row, 3, "Sẵn sàng")
+                        sheet_thietbi.update_cell(cell.row, 4, "")
+                        sheet_lichsu.append_row([now.strftime("%d/%m/%Y %H:%M:%S"), "🤖 Hệ thống", "Thu hồi tự động", device])
+                        has_changes = True
+                        
+        if has_changes:
+            load_data.clear() # Xóa cache nếu có máy bị thu hồi
     except:
         pass
 
@@ -84,7 +93,7 @@ if not st.session_state['logged_in']:
         u = st.text_input("Tài khoản")
         p = st.text_input("Mật khẩu", type="password")
         if st.form_submit_button("Đăng nhập"):
-            df_tk = load_data(sheet_taikhoan)
+            df_tk = load_data("TaiKhoan")
             match = df_tk[(df_tk['TaiKhoan'].astype(str) == u) & (df_tk['MatKhau'].astype(str) == p)]
             if not match.empty:
                 st.session_state.update({'logged_in': True, 'ho_ten': match.iloc[0]['HoTen']})
@@ -104,10 +113,11 @@ else:
             st.rerun()
 
     st.markdown("---")
-    auto_return_devices(sheet_thietbi, sheet_lichtuan, sheet_lichsu)
+    auto_return_devices()
     
-    df_tb = load_data(sheet_thietbi)
-    df_lich_view = load_data(sheet_lichtuan)
+    # Truyền TÊN SHEET thay vì Object để Cache hoạt động
+    df_tb = load_data("ThietBi")
+    df_lich_view = load_data("LichTuan")
     all_devices = df_tb['Tên'].tolist() if not df_tb.empty else []
     
     khung_gio_24h = [f"{i:02d}:00" for i in range(24)]
@@ -126,17 +136,14 @@ else:
     with tab2:
         st.subheader("📅 Bảng đăng ký Lab tương tác")
         
-        # BỘ LỌC CHỌN THIẾT BỊ (Đã bỏ lựa chọn Tất cả)
         c_filter, _ = st.columns([1, 2])
         with c_filter:
             view_mode = st.selectbox("🔍 Chọn thiết bị để xem lịch:", all_devices if all_devices else ["Chưa có dữ liệu"])
         
         st.info(f"💡 Đang hiển thị lịch trình của **{view_mode}**. Click vào từng ô để xem chi tiết.")
 
-        # Lọc dữ liệu ma trận chỉ lấy thiết bị đang chọn
         df_matrix_data = df_lich_view[df_lich_view['Thiết bị'] == view_mode] if not df_lich_view.empty else pd.DataFrame()
 
-        # Khởi tạo ma trận
         matrix = pd.DataFrame("🟢 Trống", index=khung_gio_24h, columns=days_7)
         if not df_matrix_data.empty:
             for _, r in df_matrix_data.iterrows():
@@ -147,7 +154,6 @@ else:
             if "🔴" in val: return 'background-color: #ff4b4b; color: white;'
             return 'background-color: #2ecc71; color: white;'
         
-        # Render bảng với tính năng on_select
         event = st.dataframe(
             matrix.style.map(style_matrix),
             use_container_width=True,
@@ -155,7 +161,6 @@ else:
             selection_mode="single-cell"
         )
 
-        # HIỂN THỊ CHI TIẾT KHI CLICK
         if event and len(event.selection.rows) > 0 and len(event.selection.columns) > 0:
             r_idx = event.selection.rows[0]
             c_idx = event.selection.columns[0]
@@ -163,8 +168,6 @@ else:
             s_date = matrix.columns[c_idx]
             
             st.markdown(f"### 🔍 Chi tiết lúc **{s_hour}** ngày **{s_date}**")
-            
-            # Lấy chi tiết của đúng máy đang chọn
             booked_details = df_lich_view[(df_lich_view['Ngày'] == s_date) & 
                                           (df_lich_view['Ca làm việc'] == s_hour) & 
                                           (df_lich_view['Thiết bị'] == view_mode)]
@@ -177,21 +180,22 @@ else:
         
         st.markdown("---")
 
-        # Form Đăng ký / Mượn
         st.markdown(f"### 📝 Đăng ký / Mượn nhanh thiết bị: **{view_mode}**")
         with st.form("smart_booking"):
             c1, c2, c3 = st.columns(3)
             with c1: d_pick = st.date_input("Chọn ngày", min_value=today)
             with c2: g_picks = st.multiselect("Chọn các khung giờ", khung_gio_24h)
-            with c3: note = st.text_input("Mục đích (VD: Đo quang phổ)")
+            with c3: note = st.text_input("Mục đích (VD: Đo phổ ZnO)")
             
             c_sub, c_now = st.columns(2)
             with c_sub: btn_book = st.form_submit_button("🔥 Xác nhận Đặt lịch")
             with c_now: btn_use_now = st.form_submit_button("⚡ Mượn ngay bây giờ")
             
-            # XỬ LÝ ĐẶT LỊCH
             if btn_book:
-                df_lich_rt = load_data(sheet_lichtuan)
+                # Ép tải lại data trực tiếp từ Google Sheets khi bấm nút (vượt qua cache)
+                sheet_lich_rt = sh.worksheet("LichTuan")
+                df_lich_rt = pd.DataFrame(sheet_lich_rt.get_all_records())
+                
                 d_str = d_pick.strftime("%d/%m/%Y")
                 conflicts = [g for g in g_picks if not df_lich_rt[(df_lich_rt['Ngày'] == d_str) & (df_lich_rt['Ca làm việc'] == g) & (df_lich_rt['Thiết bị'] == view_mode)].empty]
                 
@@ -201,13 +205,15 @@ else:
                     for g in g_picks:
                         sheet_lichtuan.append_row([d_str, g, st.session_state['ho_ten'], view_mode, note])
                     st.success("✅ Đã đặt lịch thành công!")
+                    load_data.clear() # XÓA CACHE ĐỂ CẬP NHẬT GIAO DIỆN NGAY LẬP TỨC
                     st.rerun()
             
-            # XỬ LÝ MƯỢN NGAY
             if btn_use_now:
+                sheet_lich_rt = sh.worksheet("LichTuan")
+                df_lich_rt = pd.DataFrame(sheet_lich_rt.get_all_records())
+                
                 d_str = datetime.now().strftime("%d/%m/%Y")
                 h_str = datetime.now().strftime("%H:00")
-                df_lich_rt = load_data(sheet_lichtuan)
                 
                 conflict = df_lich_rt[(df_lich_rt['Ngày'] == d_str) & (df_lich_rt['Ca làm việc'] == h_str) & (df_lich_rt['Thiết bị'] == view_mode)]
                 if not conflict.empty and conflict.iloc[0]['Người sử dụng'] != st.session_state['ho_ten']:
@@ -218,12 +224,13 @@ else:
                     sheet_thietbi.update_cell(cell.row, 4, st.session_state['ho_ten'])
                     sheet_lichsu.append_row([datetime.now().strftime("%d/%m/%Y %H:%M:%S"), st.session_state['ho_ten'], "Sử dụng", view_mode])
                     st.success(f"✅ Đã ghi nhận bạn đang sử dụng {view_mode}")
+                    load_data.clear() # XÓA CACHE
                     st.rerun()
 
     # --- TAB 3 & 4 (GIỮ NGUYÊN) ---
     with tab3:
         st.subheader("Lịch sử hoạt động")
-        df_h = load_data(sheet_lichsu)
+        df_h = load_data("LichSu")
         if not df_h.empty: st.dataframe(df_h.iloc[::-1], use_container_width=True, hide_index=True)
 
     with tab4:
@@ -240,4 +247,5 @@ else:
                         sheet_thietbi.update_cell(cell.row, 4, "")
                         sheet_lichsu.append_row([datetime.now().strftime("%d/%m/%Y %H:%M:%S"), st.session_state['ho_ten'], "Hoàn trả sớm", dev_ret])
                         st.success(f"✅ Đã trả {dev_ret}")
+                        load_data.clear() # XÓA CACHE
                         st.rerun()
