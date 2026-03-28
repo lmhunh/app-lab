@@ -2,6 +2,7 @@ import streamlit as st
 import pandas as pd
 import gspread
 from datetime import datetime, timedelta
+import time
 
 # ==========================================
 # 1. CẤU HÌNH & KẾT NỐI
@@ -32,7 +33,12 @@ except Exception as e:
     st.stop()
 
 def load_data(sheet):
-    return pd.DataFrame(sheet.get_all_records())
+    """Thêm cơ chế chống lỗi API (Too Many Requests) của Google Sheets"""
+    try:
+        return pd.DataFrame(sheet.get_all_records())
+    except gspread.exceptions.APIError:
+        time.sleep(2) # Đợi 2 giây rồi thử lại nếu bị Google chặn
+        return pd.DataFrame(sheet.get_all_records())
 
 # ==========================================
 # 2. ROBOT TỰ ĐỘNG THU HỒI
@@ -90,7 +96,7 @@ if not st.session_state['logged_in']:
 # ==========================================
 else:
     col_t, col_l = st.columns([8, 2])
-    col_t.title("⏱️ Quản lý Thiết bị Lab - Bản đồ tương tác")
+    col_t.title("⏱️ Quản lý Thiết bị Lab")
     with col_l:
         st.write(f"👤 **{st.session_state['ho_ten']}**")
         if st.button("🚪 Đăng xuất"):
@@ -120,34 +126,22 @@ else:
     with tab2:
         st.subheader("📅 Bảng đăng ký Lab tương tác")
         
-        # BỘ LỌC CHỌN THIẾT BỊ ĐỂ XEM MA TRẬN
+        # BỘ LỌC CHỌN THIẾT BỊ (Đã bỏ lựa chọn Tất cả)
         c_filter, _ = st.columns([1, 2])
         with c_filter:
-            view_mode = st.selectbox("🔍 Chọn thiết bị để xem lịch:", ["Tất cả thiết bị"] + all_devices)
+            view_mode = st.selectbox("🔍 Chọn thiết bị để xem lịch:", all_devices if all_devices else ["Chưa có dữ liệu"])
         
-        st.info("💡 **MẸO:** Hãy click chuột vào bất kỳ ô nào trong bảng dưới đây để xem chi tiết giờ đó.")
+        st.info(f"💡 Đang hiển thị lịch trình của **{view_mode}**. Click vào từng ô để xem chi tiết.")
 
-        # Lọc dữ liệu ma trận dựa trên thiết bị đã chọn
-        if view_mode == "Tất cả thiết bị":
-            df_matrix_data = df_lich_view
-        else:
-            df_matrix_data = df_lich_view[df_lich_view['Thiết bị'] == view_mode]
+        # Lọc dữ liệu ma trận chỉ lấy thiết bị đang chọn
+        df_matrix_data = df_lich_view[df_lich_view['Thiết bị'] == view_mode] if not df_lich_view.empty else pd.DataFrame()
 
-        # Khởi tạo ma trận hiển thị cơ bản
+        # Khởi tạo ma trận
         matrix = pd.DataFrame("🟢 Trống", index=khung_gio_24h, columns=days_7)
         if not df_matrix_data.empty:
             for _, r in df_matrix_data.iterrows():
                 if str(r['Ngày']) in days_7 and str(r['Ca làm việc']) in khung_gio_24h:
-                    if view_mode == "Tất cả thiết bị":
-                        # Nếu xem tất cả, chỉ báo chung là có máy bận
-                        current_val = matrix.at[str(r['Ca làm việc']), str(r['Ngày'])]
-                        if "🔴" in current_val:
-                            matrix.at[str(r['Ca làm việc']), str(r['Ngày'])] = "🔴 Bận nhiều máy"
-                        else:
-                            matrix.at[str(r['Ca làm việc']), str(r['Ngày'])] = f"🔴 {r['Thiết bị']}"
-                    else:
-                        # Nếu xem 1 máy cụ thể, báo tên người đang giữ máy đó
-                        matrix.at[str(r['Ca làm việc']), str(r['Ngày'])] = f"🔴 {r['Người sử dụng']}"
+                    matrix.at[str(r['Ca làm việc']), str(r['Ngày'])] = f"🔴 {r['Người sử dụng']}"
 
         def style_matrix(val):
             if "🔴" in val: return 'background-color: #ff4b4b; color: white;'
@@ -161,58 +155,35 @@ else:
             selection_mode="single-cell"
         )
 
-        # HIỂN THỊ CHI TIẾT KHI CLICK VÀO 1 Ô
+        # HIỂN THỊ CHI TIẾT KHI CLICK
         if event and len(event.selection.rows) > 0 and len(event.selection.columns) > 0:
             r_idx = event.selection.rows[0]
             c_idx = event.selection.columns[0]
             s_hour = matrix.index[r_idx]
             s_date = matrix.columns[c_idx]
             
-            st.markdown(f"### 🔍 Chi tiết trạng thái lúc **{s_hour}** ngày **{s_date}**")
+            st.markdown(f"### 🔍 Chi tiết lúc **{s_hour}** ngày **{s_date}**")
             
-            # Lọc dữ liệu đặt lịch cho đúng ô thời gian này (luôn lấy từ bản full để báo chính xác)
-            booked_details = df_lich_view[(df_lich_view['Ngày'] == s_date) & (df_lich_view['Ca làm việc'] == s_hour)]
+            # Lấy chi tiết của đúng máy đang chọn
+            booked_details = df_lich_view[(df_lich_view['Ngày'] == s_date) & 
+                                          (df_lich_view['Ca làm việc'] == s_hour) & 
+                                          (df_lich_view['Thiết bị'] == view_mode)]
             
-            if view_mode != "Tất cả thiết bị":
-                # Nếu đang xem 1 máy, chỉ lấy chi tiết của máy đó
-                booked_details = booked_details[booked_details['Thiết bị'] == view_mode]
-                if not booked_details.empty:
-                    r = booked_details.iloc[0]
-                    st.error(f"🔴 **{view_mode}** đang được đặt bởi **{r['Người sử dụng']}** \n\n 👉 *Mục đích: {r['Mục đích']}*")
-                else:
-                    st.success(f"🟢 **{view_mode}** đang trống! Bạn có thể đặt lịch ngay bên dưới.")
+            if not booked_details.empty:
+                r = booked_details.iloc[0]
+                st.error(f"🔴 **{view_mode}** đang được đặt bởi **{r['Người sử dụng']}** \n\n 👉 *Mục đích: {r['Mục đích']}*")
             else:
-                # Nếu xem tất cả thiết bị
-                booked_devices = booked_details['Thiết bị'].tolist()
-                free_devices = [d for d in all_devices if d not in booked_devices]
-                
-                col_busy, col_free = st.columns(2)
-                with col_busy:
-                    st.error("🔴 **THIẾT BỊ ĐÃ ĐƯỢC ĐẶT:**")
-                    if booked_devices:
-                        for _, r in booked_details.iterrows():
-                            st.write(f"- **{r['Thiết bị']}** (bởi *{r['Người sử dụng']}*) - *{r['Mục đích']}*")
-                    else:
-                        st.write("Không có máy nào bị đặt.")
-                        
-                with col_free:
-                    st.success("🟢 **THIẾT BỊ ĐANG TRỐNG:**")
-                    if free_devices:
-                        for d in free_devices: st.write(f"- {d}")
-                    else:
-                        st.write("Đã hết máy trống!")
+                st.success(f"🟢 **{view_mode}** đang trống! Bạn có thể mượn ngay hoặc đặt lịch bên dưới.")
         
         st.markdown("---")
 
-        # Form Đăng ký / Mượn (Giữ nguyên logic chống trùng)
-        st.markdown("### 📝 Form Đăng ký & Mượn Thiết bị")
+        # Form Đăng ký / Mượn
+        st.markdown(f"### 📝 Đăng ký / Mượn nhanh thiết bị: **{view_mode}**")
         with st.form("smart_booking"):
             c1, c2, c3 = st.columns(3)
             with c1: d_pick = st.date_input("Chọn ngày", min_value=today)
             with c2: g_picks = st.multiselect("Chọn các khung giờ", khung_gio_24h)
-            with c3: 
-                tb_pick = st.selectbox("Thiết bị", all_devices if all_devices else ["Chưa có dữ liệu"])
-                note = st.text_input("Mục đích (VD: Khảo sát màng Cu2O)")
+            with c3: note = st.text_input("Mục đích (VD: Đo quang phổ)")
             
             c_sub, c_now = st.columns(2)
             with c_sub: btn_book = st.form_submit_button("🔥 Xác nhận Đặt lịch")
@@ -222,14 +193,14 @@ else:
             if btn_book:
                 df_lich_rt = load_data(sheet_lichtuan)
                 d_str = d_pick.strftime("%d/%m/%Y")
-                conflicts = [g for g in g_picks if not df_lich_rt[(df_lich_rt['Ngày'] == d_str) & (df_lich_rt['Ca làm việc'] == g) & (df_lich_rt['Thiết bị'] == tb_pick)].empty]
+                conflicts = [g for g in g_picks if not df_lich_rt[(df_lich_rt['Ngày'] == d_str) & (df_lich_rt['Ca làm việc'] == g) & (df_lich_rt['Thiết bị'] == view_mode)].empty]
                 
-                if conflicts: st.error(f"❌ Rất tiếc, máy đã bị đặt vào lúc: {', '.join(conflicts)}")
+                if conflicts: st.error(f"❌ Rất tiếc, {view_mode} đã bị đặt vào lúc: {', '.join(conflicts)}")
                 elif not g_picks: st.warning("Vui lòng chọn khung giờ!")
                 else:
                     for g in g_picks:
-                        sheet_lichtuan.append_row([d_str, g, st.session_state['ho_ten'], tb_pick, note])
-                    st.success("✅ Đã cập nhật ma trận thành công!")
+                        sheet_lichtuan.append_row([d_str, g, st.session_state['ho_ten'], view_mode, note])
+                    st.success("✅ Đã đặt lịch thành công!")
                     st.rerun()
             
             # XỬ LÝ MƯỢN NGAY
@@ -238,15 +209,15 @@ else:
                 h_str = datetime.now().strftime("%H:00")
                 df_lich_rt = load_data(sheet_lichtuan)
                 
-                conflict = df_lich_rt[(df_lich_rt['Ngày'] == d_str) & (df_lich_rt['Ca làm việc'] == h_str) & (df_lich_rt['Thiết bị'] == tb_pick)]
+                conflict = df_lich_rt[(df_lich_rt['Ngày'] == d_str) & (df_lich_rt['Ca làm việc'] == h_str) & (df_lich_rt['Thiết bị'] == view_mode)]
                 if not conflict.empty and conflict.iloc[0]['Người sử dụng'] != st.session_state['ho_ten']:
-                    st.error(f"⚠️ {tb_pick} đã được {conflict.iloc[0]['Người sử dụng']} đặt lịch lúc này.")
+                    st.error(f"⚠️ {view_mode} đã được {conflict.iloc[0]['Người sử dụng']} đặt lịch lúc này.")
                 else:
-                    cell = sheet_thietbi.find(tb_pick)
+                    cell = sheet_thietbi.find(view_mode)
                     sheet_thietbi.update_cell(cell.row, 3, "Đang mượn")
                     sheet_thietbi.update_cell(cell.row, 4, st.session_state['ho_ten'])
-                    sheet_lichsu.append_row([datetime.now().strftime("%d/%m/%Y %H:%M:%S"), st.session_state['ho_ten'], "Sử dụng", tb_pick])
-                    st.success(f"✅ Đã ghi nhận bạn đang sử dụng {tb_pick}")
+                    sheet_lichsu.append_row([datetime.now().strftime("%d/%m/%Y %H:%M:%S"), st.session_state['ho_ten'], "Sử dụng", view_mode])
+                    st.success(f"✅ Đã ghi nhận bạn đang sử dụng {view_mode}")
                     st.rerun()
 
     # --- TAB 3 & 4 (GIỮ NGUYÊN) ---
