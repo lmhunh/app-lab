@@ -129,7 +129,7 @@ else:
 
     st.markdown("""
     <div style='text-align: center; font-style: italic; color: #4b4b4b; background-color: #f1f8ff; padding: 10px; border-radius: 8px; border-left: 5px solid #0366d6; margin-bottom: 20px;'>
-        "Nghiên cứu khoa học là biến những điều chưa biết thành kiến thức. Chúc bạn có một phiên làm việc hiệu quả!" 🔬✨
+        Mỗi ngày lên lab là một ngày vui. Sẽ vui hơn nếu chúng ta chăm chỉ!!!
     </div>
     """, unsafe_allow_html=True)
     
