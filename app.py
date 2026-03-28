@@ -1,12 +1,12 @@
 import streamlit as st
 import pandas as pd
 import gspread
-from datetime import datetime
+from datetime import datetime, timedelta
 
 # ==========================================
-# 1. CẤU HÌNH TRANG & KẾT NỐI
+# 1. CẤU HÌNH & KẾT NỐI
 # ==========================================
-st.set_page_config(page_title="Hệ thống Quản lý Lab", page_icon="🧪", layout="wide")
+st.set_page_config(page_title="Lab Management (When2meet)", page_icon="🧪", layout="wide")
 
 @st.cache_resource
 def connect_to_gsheets():
@@ -20,7 +20,6 @@ def connect_to_gsheets():
         st.error(f"❌ Lỗi Secrets: {e}")
         st.stop()
 
-# Khởi tạo các Sheet
 try:
     gc = connect_to_gsheets()
     sh = gc.open("Quan_ly_lab") 
@@ -32,29 +31,18 @@ except Exception as e:
     st.error(f"❌ Lỗi kết nối Sheets: {e}")
     st.stop()
 
-# ==========================================
-# 2. HÀM HỖ TRỢ (HELPER FUNCTIONS)
-# ==========================================
 def load_data(sheet):
     return pd.DataFrame(sheet.get_all_records())
 
-def check_conflict(df_lich, ngay, gio, thiet_bi):
-    """Kiểm tra xem thiết bị đã có người đặt vào khung giờ đó chưa"""
-    if df_lich.empty: return False
-    conflict = df_lich[(df_lich['Ngày'] == ngay) & 
-                       (df_lich['Ca làm việc'] == gio) & 
-                       (df_lich['Thiết bị'] == thiet_bi)]
-    return not conflict.empty
-
 # ==========================================
-# 3. QUẢN LÝ ĐĂNG NHẬP
+# 2. LOGIC ĐĂNG NHẬP
 # ==========================================
 if 'logged_in' not in st.session_state:
     st.session_state.update({'logged_in': False, 'ho_ten': ""})
 
 if not st.session_state['logged_in']:
     st.title("🔐 Đăng nhập Hệ thống Lab")
-    with st.form("login_form"):
+    with st.form("login"):
         u = st.text_input("Tài khoản")
         p = st.text_input("Mật khẩu", type="password")
         if st.form_submit_button("Đăng nhập"):
@@ -66,12 +54,12 @@ if not st.session_state['logged_in']:
             else: st.error("Sai tài khoản hoặc mật khẩu!")
 
 # ==========================================
-# 4. GIAO DIỆN CHÍNH
+# 3. GIAO DIỆN CHÍNH
 # ==========================================
 else:
-    # Sidebar / Header
+    # --- Sidebar/Header ---
     col_t, col_l = st.columns([8, 2])
-    col_t.title("🧪 Phần mềm Quản lý Lab")
+    col_t.title("🧪 Quản lý Thiết bị Lab - When2meet Style")
     with col_l:
         st.write(f"👤 **{st.session_state['ho_ten']}**")
         if st.button("🚪 Đăng xuất"):
@@ -81,83 +69,87 @@ else:
     st.markdown("---")
     df_tb = load_data(sheet_thietbi)
     df_lich = load_data(sheet_lichtuan)
+    
+    # Khai báo khung giờ và ngày
     khung_gio_24h = [f"{i:02d}:00" for i in range(24)]
+    today = datetime.now().date()
+    days_7 = [(today + timedelta(days=i)).strftime("%d/%m/%Y") for i in range(7)]
 
-    tab1, tab2, tab3, tab4 = st.tabs(["📊 Trạng thái", "📅 Mượn & Đặt lịch", "🕒 Lịch sử", "🔄 Trả thiết bị"])
+    tab1, tab2, tab3, tab4 = st.tabs(["📊 Trạng thái", "📅 Ma trận Lịch 7 ngày", "🕒 Lịch sử", "🔄 Trả thiết bị"])
 
     # --- TAB 1: TRẠNG THÁI ---
     with tab1:
-        st.subheader("Danh sách thiết bị")
+        st.subheader("Tình trạng thiết bị hiện tại")
         if not df_tb.empty:
             st.dataframe(df_tb, use_container_width=True, hide_index=True)
 
-    # --- TAB 2: MƯỢN & ĐẶT LỊCH (CHỐNG TRÙNG) ---
+    # --- TAB 2: MA TRẬN LỊCH 7 NGÀY (WHEN2MEET) ---
     with tab2:
-        st.info("💡 Bạn có thể Mượn sử dụng ngay hoặc Đặt lịch trước cho tuần tới.")
-        col_borrow, col_schedule = st.columns(2)
+        st.subheader("📅 Bảng đăng ký sử dụng Lab theo tuần")
+        
+        # Tạo Ma trận Heatmap
+        matrix = pd.DataFrame("", index=khung_gio_24h, columns=days_7)
+        if not df_lich.empty:
+            for _, r in df_lich.iterrows():
+                if str(r['Ngày']) in days_7 and str(r['Ca làm việc']) in khung_gio_24h:
+                    matrix.at[str(r['Ca làm việc']), str(r['Ngày'])] = f"🔴 {r['Người sử dụng']}"
 
-        with col_borrow:
-            st.subheader("⚡ Mượn ngay bây giờ")
-            ready_list = df_tb[df_tb['Trạng thái'] == 'Sẵn sàng']['Tên'].tolist()
-            with st.form("form_muon_ngay"):
-                device_now = st.selectbox("Chọn thiết bị", ready_list if ready_list else ["Không có máy trống"])
-                note_now = st.text_input("Ghi chú (VD: Đo phổ Raman ZnO)")
-                if st.form_submit_button("Xác nhận Mượn"):
-                    now_h = datetime.now().strftime("%H:00")
-                    today_s = datetime.now().strftime("%d/%m/%Y")
-                    
-                    # Kiểm tra xem giờ này có ai đặt trước không
-                    if check_conflict(df_lich, today_s, now_h, device_now):
-                        st.error("⚠️ Giờ này đã có người đặt lịch trước cho máy này!")
-                    else:
-                        cell = sheet_thietbi.find(device_now)
-                        sheet_thietbi.update_cell(cell.row, 3, "Đang mượn")
-                        sheet_thietbi.update_cell(cell.row, 4, st.session_state['ho_ten'])
-                        sheet_lichsu.append_row([f"{today_s} {datetime.now().strftime('%H:%M')}", st.session_state['ho_ten'], "Mượn", device_now])
-                        st.success(f"✅ Đã mượn {device_now}")
-                        st.rerun()
+        # Hiển thị bảng màu
+        def style_matrix(val):
+            if "🔴" in val: return 'background-color: #ff4b4b; color: white;' # Đã đặt
+            return 'background-color: #2ecc71; color: white;'              # Còn trống
+        
+        st.write("💡 **Xanh:** Trống | **Đỏ:** Đã có lịch")
+        st.dataframe(matrix.style.map(style_matrix), use_container_width=True)
 
-        with col_schedule:
-            st.subheader("📅 Đặt lịch trước (When2meet style)")
-            with st.form("form_dat_lich"):
-                ngay_dk = st.date_input("Chọn ngày", min_value=datetime.now().date())
-                gio_dk = st.multiselect("Chọn các khung giờ", khung_gio_24h)
-                tb_dk = st.selectbox("Thiết bị đặt lịch", df_tb['Tên'].tolist())
-                ghi_chu_dk = st.text_input("Mục đích (VD: Ủ nhiệt Cu2O)")
-                if st.form_submit_button("🔥 Lưu lịch đã chọn"):
-                    n_str = ngay_dk.strftime("%d/%m/%Y")
-                    conflicts = [g for g in gio_dk if check_conflict(df_lich, n_str, g, tb_dk)]
-                    if conflicts:
-                        st.error(f"❌ Trùng lịch tại: {', '.join(conflicts)}")
-                    else:
-                        for g in gio_dk:
-                            sheet_lichtuan.append_row([n_str, g, st.session_state['ho_ten'], tb_dk, ghi_chu_dk])
-                        st.success("✅ Đã đặt lịch thành công!")
-                        st.rerun()
+        # Form Đăng ký
+        st.markdown("### 📝 Đăng ký ca làm việc")
+        with st.form("smart_booking"):
+            c1, c2, c3 = st.columns(3)
+            with c1: d_pick = st.date_input("Chọn ngày", min_value=today)
+            with c2: g_picks = st.multiselect("Chọn các khung giờ", khung_gio_24h)
+            with c3: 
+                tb_pick = st.selectbox("Thiết bị", df_tb['Tên'].tolist())
+                note = st.text_input("Mục đích (VD: Đo Raman ZnO)")
+            
+            if st.form_submit_button("🔥 Xác nhận Đặt lịch"):
+                d_str = d_pick.strftime("%d/%m/%Y")
+                # Chống trùng lịch
+                conflicts = []
+                for g in g_picks:
+                    is_taken = not df_lich[(df_lich['Ngày'] == d_str) & (df_lich['Ca làm việc'] == g) & (df_lich['Thiết bị'] == tb_pick)].empty
+                    if is_taken: conflicts.append(g)
+                
+                if conflicts:
+                    st.error(f"❌ Trùng lịch tại: {', '.join(conflicts)}")
+                elif not g_picks:
+                    st.warning("Vui lòng chọn ít nhất 1 khung giờ!")
+                else:
+                    for g in g_picks:
+                        sheet_lichtuan.append_row([d_str, g, st.session_state['ho_ten'], tb_pick, note])
+                    st.success("✅ Đã cập nhật ma trận lịch thành công!")
+                    st.rerun()
 
     # --- TAB 3: LỊCH SỬ ---
     with tab3:
         st.subheader("Lịch sử hoạt động")
-        df_history = load_data(sheet_lichsu)
-        if not df_history.empty:
-            st.dataframe(df_history.iloc[::-1], use_container_width=True, hide_index=True)
+        df_h = load_data(sheet_lichsu)
+        if not df_h.empty:
+            st.dataframe(df_h.iloc[::-1], use_container_width=True, hide_index=True)
 
     # --- TAB 4: TRẢ THIẾT BỊ ---
     with tab4:
         st.subheader("🔄 Hoàn trả thiết bị")
-        my_borrowed = df_tb[df_tb['Người mượn'] == st.session_state['ho_ten']]['Tên'].tolist()
-        if not my_borrowed:
-            st.info("Bạn hiện không mượn thiết bị nào.")
-        else:
-            with st.form("form_tra"):
-                device_return = st.selectbox("Chọn thiết bị muốn trả", my_borrowed)
-                if st.form_submit_button("Xác nhận Trả"):
-                    cell = sheet_thietbi.find(device_return)
-                    sheet_thietbi.update_cell(cell.row, 3, "Sẵn sàng")
-                    sheet_thietbi.update_cell(cell.row, 4, "")
-                    sheet_thietbi.update_cell(cell.row, 5, "")
-                    
-                    now_s = datetime.now().strftime("%d/%m/%Y %H:%M")
-                    sheet_lichsu.append_row([now_s, st.session_state['ho_ten'], "Trả", device_return])
-                    st.success(f"✅ Đã trả {device_return}")
-                    st.rerun()
+        # Sử dụng đúng tên cột "Người sử dụng"
+        user_col = "Người sử dụng"
+        if user_col in df_tb.columns:
+            my_list = df_tb[df_tb[user_col] == st.session_state['ho_ten']]['Tên'].tolist()
+            if not my_list:
+                st.info("Bạn hiện không sử dụng thiết bị nào.")
+            else:
+                with st.form("return_form"):
+                    dev_ret = st.selectbox("Thiết bị đang sử dụng", my_list)
+                    if st.form_submit_button("Xác nhận hoàn trả"):
+                        cell = sheet_thietbi.find(dev_ret)
+                        sheet_thietbi.update_cell(cell.row, 3, "Sẵn sàng")
+                        sheet_thietbi.
