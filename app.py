@@ -1,37 +1,30 @@
 import streamlit as st
-import pandas as pd
 import gspread
+import pandas as pd
 from datetime import datetime
 
-# --- 1. CẤU HÌNH TRANG ---
-st.set_page_config(page_title="Hệ thống Quản lý Lab", layout="wide")
-
-# --- 2. KẾT NỐI GOOGLE SHEETS ---
+# --- KẾT NỐI DỮ LIỆU ---
 def connect_to_gsheets():
     try:
-        # Lấy dữ liệu từ mục [my_creds] trong Secrets (dạng TOML)
-        creds_dict = dict(st.secrets["my_creds"])
-        
-        # Sửa lỗi ký tự xuống dòng của mã khóa bí mật
-        creds_dict["private_key"] = creds_dict["private_key"].replace("\\n", "\n")
-        
-        return gspread.service_account_from_dict(creds_dict)
+        # Code sẽ tìm trực tiếp file credentials.json trong thư mục gốc GitHub
+        return gspread.service_account(filename='credentials.json')
     except Exception as e:
-        st.error(f"❌ Lỗi cấu hình Secrets: {e}")
-        st.info("Kiểm tra lại định dạng TOML trong mục Secrets trên Streamlit Cloud.")
+        st.error(f"❌ Không tìm thấy file credentials.json trên GitHub: {e}")
         st.stop()
 
-# Khởi tạo kết nối và các Sheet
+# Khởi tạo kết nối
 try:
     gc = connect_to_gsheets()
-    # Mở file Sheets (Hãy đảm bảo tên này đúng 100% với tên trên Google Drive)
     sh = gc.open("Quan_ly_lab") 
     sheet_thietbi = sh.worksheet("ThietBi")
-    sheet_lichsu = sh.worksheet("LichSu")
     sheet_taikhoan = sh.worksheet("TaiKhoan")
+    sheet_lichsu = sh.worksheet("LichSu")
 except Exception as e:
-    st.error(f"❌ Lỗi kết nối Google Sheets: {e}")
+    st.error(f"❌ Lỗi kết nối Sheets: {e}")
     st.stop()
+
+# --- PHẦN GIAO DIỆN (ĐĂNG NHẬP & QUẢN LÝ) ---
+# Giữ nguyên phần logic đăng nhập bằng TaiKhoan như các bản trước
 
 # --- 3. QUẢN LÝ ĐĂNG NHẬP ---
 if 'logged_in' not in st.session_state:
