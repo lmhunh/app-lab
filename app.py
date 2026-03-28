@@ -155,42 +155,64 @@ else:
             st.dataframe(history_data.iloc[::-1], use_container_width=True, hide_index=True)
         else:
             st.info("Chưa có lịch sử giao dịch.")
-# --- TAB 4: ĐĂNG KÝ LỊCH THEO TUẦN ---
+# --- TAB 4: ĐĂNG KÝ LỊCH THEO TUẦN (GIAO DIỆN WHEN2MEET) ---
     with tab4:
-        st.subheader("Lịch sử dụng Lab trong tuần")
-        c_form, c_view = st.columns([1, 2])
+        st.subheader("📅 Ma trận lịch trình Lab trong tuần")
         
-        with c_form:
-            st.markdown("**📝 Form Đăng ký**")
-            with st.form("form_dat_lich"):
-                ngay_dk = st.date_input("Chọn ngày")
-                ca_lam_viec = st.selectbox("Ca làm việc", ["Sáng (8h-12h)", "Chiều (13h-17h)", "Tối (18h-22h)"])
-                
-                # Lấy danh sách thiết bị để chọn (bỏ các thiết bị đã hỏng)
-                danh_sach_tb = df[df['Trạng thái'] != 'Hỏng']['Tên'].tolist() if not df.empty else ["Bàn lab chung"]
-                thiet_bi_dk = st.selectbox("Thiết bị / Vị trí", danh_sach_tb)
-                
-                muc_dich = st.text_input("Mục đích", placeholder="VD: Rửa cốc,...")
-                
-                if st.form_submit_button("Lưu lịch"):
-                    if muc_dich == "":
-                        st.warning("Vui lòng nhập mục đích sử dụng!")
-                    else:
-                        ngay_str = ngay_dk.strftime("%d/%m/%Y")
-                        # Ghi dữ liệu vào Google Sheets
-                        sheet_lichtuan.append_row([ngay_str, ca_lam_viec, st.session_state['ho_ten'], thiet_bi_dk, muc_dich])
-                        st.success(f"✅ Đã lưu lịch ngày {ngay_str} ca {ca_lam_viec}!")
-                        st.rerun()
+        # 1. Lấy dữ liệu và xử lý ngày tháng
+        df_lich = load_data(sheet_lichtuan)
+        
+        # Tạo danh sách 7 ngày trong tuần tới (từ hôm nay)
+        today = datetime.now().date()
+        days_of_week = [(today + pd.Timedelta(days=i)).strftime("%d/%m/%Y") for i in range(7)]
+        time_slots = ["Sáng (8h-12h)", "Chiều (13h-17h)", "Tối (18h-22h)"]
 
-        with c_view:
-            st.markdown("**📅 Lịch đã đăng ký**")
-            df_lich = load_data(sheet_lichtuan)
+        # 2. Hiển thị Ma trận (Heatmap)
+        if not df_lich.empty:
+            # Tạo bảng trống (Row: Ca làm việc, Col: Ngày)
+            matrix = pd.DataFrame("", index=time_slots, columns=days_of_week)
             
-            if not df_lich.empty:
-                # Sắp xếp lịch theo ngày gần nhất
-                df_lich['Ngày_datetime'] = pd.to_datetime(df_lich['Ngày'], format='%d/%m/%Y')
-                df_lich_sorted = df_lich.sort_values(by=['Ngày_datetime', 'Ca làm việc']).drop(columns=['Ngày_datetime'])
-                
-                st.dataframe(df_lich_sorted, use_container_width=True, hide_index=True)
-            else:
-                st.info("Tuần này Lab đang trống lịch. Nhanh tay đăng ký nhé!")
+            # Đổ dữ liệu từ Sheets vào bảng ma trận
+            for _, row in df_lich.iterrows():
+                if row['Ngày'] in days_of_week and row['Ca làm việc'] in time_slots:
+                    # Hiển thị: Tên người (Tên thiết bị)
+                    content = f"{row['Người đăng ký']} ({row['Thiết bị']})"
+                    # Nếu ô đã có người, thêm dấu phẩy để tránh ghi đè
+                    if matrix.at[row['Ca làm việc'], row['Ngày']] == "":
+                        matrix.at[row['Ca làm việc'], row['Ngày']] = content
+                    else:
+                        matrix.at[row['Ca làm việc'], row['Ngày']] += f" | {content}"
+
+            # Hàm tô màu cho bảng giống When2meet
+            def highlight_booked(val):
+                if val != "":
+                    return 'background-color: #ff4b4b; color: white;' # Màu đỏ nếu có người đặt
+                return 'background-color: #2ecc71; color: white;'     # Màu xanh nếu trống
+            
+            st.write("💡 **Xanh:** Trống | **Đỏ:** Đã có lịch")
+            st.dataframe(matrix.style.applymap(highlight_booked), use_container_width=True)
+        else:
+            st.info("Chưa có lịch đăng ký nào cho tuần này.")
+
+        st.markdown("---")
+        
+        # 3. Form Đăng ký (Giữ lại form để nhập liệu)
+        st.markdown("### 📝 Đăng ký ca làm việc mới")
+        c1, c2, c3 = st.columns(3)
+        with st.form("new_booking"):
+            with c1:
+                ngay_dk = st.date_input("Chọn ngày", min_value=today)
+            with c2:
+                ca_dk = st.selectbox("Chọn ca", time_slots)
+                thiet_bi_dk = st.selectbox("Thiết bị", df['Tên'].tolist() if not df.empty else ["Bàn lab"])
+            with c3:
+                muc_dich = st.text_input("Mục đích sử dụng", placeholder="VD: Rửa cốc,...")
+            
+            if st.form_submit_button("Xác nhận đăng ký"):
+                if muc_dich:
+                    ngay_str = ngay_dk.strftime("%d/%m/%Y")
+                    sheet_lichtuan.append_row([ngay_str, ca_dk, st.session_state['ho_ten'], thiet_bi_dk, muc_dich])
+                    st.success("Đã cập nhật lịch trình!")
+                    st.rerun()
+                else:
+                    st.warning("Vui lòng nhập mục đích!")
