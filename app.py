@@ -7,7 +7,7 @@ import time
 # ==========================================
 # 1. CẤU HÌNH & KẾT NỐI (GMT+7)
 # ==========================================
-st.set_page_config(page_title="Hệ thống Lab (Fixed Timeline)", page_icon="📅", layout="wide")
+st.set_page_config(page_title="Hệ thống Lab (Smart Unified)", page_icon="📅", layout="wide")
 
 VN_TZ = timezone(timedelta(hours=7))
 
@@ -147,13 +147,19 @@ else:
     today = get_now().date()
     days_7 = [(today + timedelta(days=i)).strftime("%d/%m/%Y") for i in range(7)]
 
-    tab1, tab2, tab3, tab4 = st.tabs(["📊 Trạng thái", "📅 Đăng ký & Timeline", "🕒 Lịch sử", "🔄 Trả thiết bị"])
+    tab1, tab2, tab3, tab4 = st.tabs(["📊 Trạng thái Lab", "📅 Timeline & Đăng ký", "🕒 Lịch sử", "🔄 Trả thiết bị"])
 
-    # --- TAB 1: TRẠNG THÁI ---
+    # --- TAB 1: TRẠNG THÁI HIỂN THỊ CẢ GHI CHÚ TÌNH TRẠNG ---
     with tab1:
         st.subheader("Tình trạng thiết bị hiện tại")
+        st.info("💡 Bảng này luôn cập nhật tình trạng mới nhất của thiết bị dựa trên ghi chú của người trả máy trước đó.")
         if not df_tb.empty:
-            st.dataframe(df_tb, use_container_width=True, hide_index=True)
+            # Highlight các thiết bị đang có ghi chú chú ý
+            def highlight_status(row):
+                if row['Trạng thái'] == 'Đang mượn': return ['background-color: #fdecea'] * len(row)
+                return [''] * len(row)
+            
+            st.dataframe(df_tb.style.apply(highlight_status, axis=1), use_container_width=True, hide_index=True)
 
     # --- TAB 2: LỊCH TIMELINE TỈ LỆ THỰC ---
     with tab2:
@@ -166,22 +172,26 @@ else:
             current_status = df_tb[df_tb['Tên'] == view_mode].iloc[0]['Trạng thái']
             current_user = df_tb[df_tb['Tên'] == view_mode].iloc[0].get('Người sử dụng', '')
             
+            # Lấy ghi chú hiện tại của máy để hiển thị trên thẻ nhắc nhở
+            note_col_name = "Ghi chú" if "Ghi chú" in df_tb.columns else None
+            current_note = df_tb[df_tb['Tên'] == view_mode].iloc[0].get(note_col_name, '') if note_col_name else ''
+            note_display = f"<br><span style='color: #666; font-size: 0.95em;'>📝 Tình trạng gần nhất: <i>{current_note}</i></span>" if current_note else ""
+
             if current_status == 'Sẵn sàng':
                 st.markdown(f"""
                 <div style='padding: 15px; border-radius: 8px; background-color: #d4edda; color: #155724; border: 1px solid #c3e6cb;'>
-                    <h4 style='margin: 0;'>🟢 <b>{view_mode}</b> đang SẴN SÀNG! Bạn có thể sử dụng ngay.</h4>
+                    <h4 style='margin: 0;'>🟢 <b>{view_mode}</b> đang SẴN SÀNG! Bạn có thể sử dụng ngay.{note_display}</h4>
                 </div>
                 """, unsafe_allow_html=True)
             else:
                 st.markdown(f"""
                 <div style='padding: 15px; border-radius: 8px; background-color: #f8d7da; color: #721c24; border: 1px solid #f5c6cb;'>
-                    <h4 style='margin: 0;'>🔴 <b>{view_mode}</b> đang BẬN (Người dùng: <b>{current_user}</b>).</h4>
+                    <h4 style='margin: 0;'>🔴 <b>{view_mode}</b> đang BẬN (Người dùng: <b>{current_user}</b>).{note_display}</h4>
                 </div>
                 """, unsafe_allow_html=True)
 
         st.write("") 
 
-        # VẼ TIMELINE BẰNG HTML (ĐÃ CĂN CHỈNH LẠI TRỤC HOÀNH)
         with st.expander(f"👉 Mở Timeline Lịch tuần của [{view_mode}]", expanded=True):
             df_dev = df_lich_view[df_lich_view['Thiết bị'] == view_mode] if not df_lich_view.empty else pd.DataFrame()
             
@@ -189,10 +199,8 @@ else:
                 df_dev = df_dev.drop_duplicates(subset=['Ngày', 'Ca làm việc', 'Thiết bị'])
             
             html_timeline = "<div style='width: 100%; font-family: sans-serif; overflow-x: auto; padding-bottom: 10px;'>"
-            
-            # --- THANH RULER ĐÃ SỬA LỖI LỆCH TRỤC ---
             html_timeline += "<div style='display: flex; align-items: flex-end; width: 100%; min-width: 600px; margin-bottom: 5px; font-size: 11px; color: #666; font-weight: bold;'>"
-            html_timeline += "<div style='width: 80px;'></div>" # Bù lại 80px của cột ngày tháng bên dưới
+            html_timeline += "<div style='width: 80px;'></div>"
             html_timeline += "<div style='flex-grow: 1; position: relative; height: 20px; border-bottom: 2px solid #aaa;'>"
             for h in range(0, 25, 2):
                 left_pct = (h / 24.0) * 100
@@ -205,7 +213,6 @@ else:
                 html_timeline += f"<div style='width: 80px; font-size: 13px; font-weight: bold; color: #444;'>{d[:5]}</div>" 
                 html_timeline += "<div style='flex-grow: 1; position: relative; height: 32px; background-color: #e9ecef; border-radius: 4px; box-shadow: inset 0 1px 2px rgba(0,0,0,0.1); border: 1px solid #ddd;'>"
                 
-                # Vẽ vạch Gridlines nhạt mỗi 2 tiếng
                 for h in range(2, 24, 2):
                     html_timeline += f"<div style='position: absolute; left: {(h/24)*100}%; width: 1px; height: 100%; background-color: #d1d5db; z-index: 1;'></div>"
                 
@@ -244,11 +251,8 @@ else:
             
         st.markdown("---")
         
-        # FORM ĐĂNG KÝ TỰ DO
         st.markdown(f"### 📝 Đăng ký mượn: **{view_mode}**")
         with st.form("smart_booking"):
-            st.info("💡 **Mẹo:** Bạn cứ thoải mái gõ giờ bằng số (VD: `14:30` hoặc `1430`).")
-            
             c1, c2, c3, c4 = st.columns([1.5, 1, 1, 2])
             with c1: 
                 d_pick = st.date_input("🗓️ Chọn ngày", min_value=today)
@@ -267,7 +271,7 @@ else:
                 t_end = parse_time(t_end_input)
 
                 if not t_start or not t_end:
-                    st.error("❌ Lỗi: Thời gian không hợp lệ! Vui lòng kiểm tra lại định dạng HH:MM.")
+                    st.error("❌ Lỗi: Thời gian không hợp lệ! Vui lòng kiểm tra lại.")
                     st.stop()
 
                 d_str = d_pick.strftime("%d/%m/%Y")
@@ -313,7 +317,7 @@ else:
                     load_data.clear() 
                     st.rerun()
 
-    # --- TAB 3 & 4 (GIỮ NGUYÊN) ---
+    # --- TAB 3 & 4 ---
     with tab3:
         st.subheader("Lịch sử hoạt động")
         df_h = load_data("LichSu")
@@ -328,16 +332,29 @@ else:
             else:
                 with st.form("return_form"):
                     dev_ret = st.selectbox("Chọn thiết bị đang giữ để trả:", my_list)
-                    return_note = st.text_input("📝 Ghi chú tình trạng (VD: Lò nung gia nhiệt ổn định...)")
+                    return_note = st.text_input("📝 Ghi chú tình trạng (VD: Lò nung đang còn nóng, chưa dọn tủ sấy...)")
                     
                     if st.form_submit_button("Xác nhận Trả"):
                         cell = sheet_thietbi.find(dev_ret)
+                        
+                        # 1. Trả trạng thái về Sẵn sàng
                         sheet_thietbi.update_cell(cell.row, 3, "Sẵn sàng")
                         sheet_thietbi.update_cell(cell.row, 4, "")
                         
-                        action_str = f"Hoàn trả (Ghi chú: {return_note})" if return_note else "Hoàn trả"
+                        # 2. KIỂM TRA VÀ GHI ĐÈ LÊN CỘT "GHI CHÚ" Ở BẢNG THIẾT BỊ
+                        if "Ghi chú" in df_tb.columns:
+                            note_col_index = df_tb.columns.get_loc("Ghi chú") + 1
+                        else:
+                            # Nếu chưa tạo cột thì mặc định nó ở cột số 5
+                            note_col_index = 5 
+                        
+                        # Ghi chú lên Tab Thiết bị
+                        sheet_thietbi.update_cell(cell.row, note_col_index, return_note)
+                        
+                        # 3. Ghi vào Lịch sử
+                        action_str = f"Hoàn trả (Tình trạng: {return_note})" if return_note else "Hoàn trả"
                         sheet_lichsu.append_row([get_now().strftime("%d/%m/%Y %H:%M:%S"), st.session_state['ho_ten'], action_str, dev_ret])
                         
-                        st.success(f"✅ Đã trả thành công {dev_ret}.")
+                        st.success(f"✅ Đã trả {dev_ret}. Tình trạng thiết bị đã được cập nhật thành công lên Bảng hệ thống!")
                         load_data.clear() 
                         st.rerun()
