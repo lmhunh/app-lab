@@ -134,4 +134,23 @@ else:
             borrowed_devices = df[df['Trạng thái'] == 'Đang mượn']['Tên'].tolist() if not df.empty else []
             with st.form("return_form"):
                 return_device = st.selectbox("Chọn thiết bị trả", borrowed_devices)
-                if st.form_submit_button("X
+                if st.form_submit_button("Xác nhận Trả"):
+                    if return_device:
+                        cell = sheet_thietbi.find(return_device)
+                        sheet_thietbi.update_cell(cell.row, 3, "Sẵn sàng")
+                        sheet_thietbi.update_cell(cell.row, 4, "")
+                        sheet_thietbi.update_cell(cell.row, 5, "Đã trả")
+                        
+                        now = datetime.now().strftime("%d/%m/%Y %H:%M:%S")
+                        sheet_lichsu.append_row([now, st.session_state['ho_ten'], "Trả", return_device])
+                        st.success(f"✅ Đã trả {return_device}")
+                        st.rerun()
+
+    # --- TAB 3: LỊCH SỬ ---
+    with tab3:
+        st.subheader("Lịch sử giao dịch gần đây")
+        history_data = load_data(sheet_lichsu)
+        if not history_data.empty:
+            st.dataframe(history_data.iloc[::-1], use_container_width=True, hide_index=True)
+        else:
+            st.info("Chưa có lịch sử giao dịch.")
