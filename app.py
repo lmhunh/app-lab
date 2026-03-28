@@ -170,7 +170,7 @@ else:
                 danh_sach_tb = df[df['Trạng thái'] != 'Hỏng']['Tên'].tolist() if not df.empty else ["Bàn lab chung"]
                 thiet_bi_dk = st.selectbox("Thiết bị / Vị trí", danh_sach_tb)
                 
-                muc_dich = st.text_input("Mục đích", placeholder="VD: Đo phổ SERS mẫu Cu2O...")
+                muc_dich = st.text_input("Mục đích", placeholder="VD: Rửa cốc,...")
                 
                 if st.form_submit_button("Lưu lịch"):
                     if muc_dich == "":
