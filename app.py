@@ -116,23 +116,44 @@ else:
         if not df_tb.empty:
             st.dataframe(df_tb, use_container_width=True, hide_index=True)
 
-    # --- TAB 2: MA TRẬN TƯƠNG TÁC (CLICK ĐỂ XEM CHI TIẾT) ---
+    # --- TAB 2: MA TRẬN THEO TỪNG THIẾT BỊ ---
     with tab2:
         st.subheader("📅 Bảng đăng ký Lab tương tác")
-        st.info("💡 **MẸO:** Hãy click chuột vào bất kỳ ô nào trong bảng dưới đây để xem danh sách máy đo nào đang bận, máy nào đang trống.")
         
-        # 1. Khởi tạo ma trận hiển thị cơ bản
+        # BỘ LỌC CHỌN THIẾT BỊ ĐỂ XEM MA TRẬN
+        c_filter, _ = st.columns([1, 2])
+        with c_filter:
+            view_mode = st.selectbox("🔍 Chọn thiết bị để xem lịch:", ["Tất cả thiết bị"] + all_devices)
+        
+        st.info("💡 **MẸO:** Hãy click chuột vào bất kỳ ô nào trong bảng dưới đây để xem chi tiết giờ đó.")
+
+        # Lọc dữ liệu ma trận dựa trên thiết bị đã chọn
+        if view_mode == "Tất cả thiết bị":
+            df_matrix_data = df_lich_view
+        else:
+            df_matrix_data = df_lich_view[df_lich_view['Thiết bị'] == view_mode]
+
+        # Khởi tạo ma trận hiển thị cơ bản
         matrix = pd.DataFrame("🟢 Trống", index=khung_gio_24h, columns=days_7)
-        if not df_lich_view.empty:
-            for _, r in df_lich_view.iterrows():
+        if not df_matrix_data.empty:
+            for _, r in df_matrix_data.iterrows():
                 if str(r['Ngày']) in days_7 and str(r['Ca làm việc']) in khung_gio_24h:
-                    matrix.at[str(r['Ca làm việc']), str(r['Ngày'])] = "🔴 Có lịch"
+                    if view_mode == "Tất cả thiết bị":
+                        # Nếu xem tất cả, chỉ báo chung là có máy bận
+                        current_val = matrix.at[str(r['Ca làm việc']), str(r['Ngày'])]
+                        if "🔴" in current_val:
+                            matrix.at[str(r['Ca làm việc']), str(r['Ngày'])] = "🔴 Bận nhiều máy"
+                        else:
+                            matrix.at[str(r['Ca làm việc']), str(r['Ngày'])] = f"🔴 {r['Thiết bị']}"
+                    else:
+                        # Nếu xem 1 máy cụ thể, báo tên người đang giữ máy đó
+                        matrix.at[str(r['Ca làm việc']), str(r['Ngày'])] = f"🔴 {r['Người sử dụng']}"
 
         def style_matrix(val):
             if "🔴" in val: return 'background-color: #ff4b4b; color: white;'
             return 'background-color: #2ecc71; color: white;'
         
-        # 2. Render bảng với tính năng on_select
+        # Render bảng với tính năng on_select
         event = st.dataframe(
             matrix.style.map(style_matrix),
             use_container_width=True,
@@ -140,40 +161,50 @@ else:
             selection_mode="single-cell"
         )
 
-        # 3. HIỂN THỊ CHI TIẾT KHI CLICK VÀO 1 Ô
+        # HIỂN THỊ CHI TIẾT KHI CLICK VÀO 1 Ô
         if event and len(event.selection.rows) > 0 and len(event.selection.columns) > 0:
             r_idx = event.selection.rows[0]
             c_idx = event.selection.columns[0]
             s_hour = matrix.index[r_idx]
             s_date = matrix.columns[c_idx]
             
-            st.markdown(f"### 🔍 Chi tiết trạng thái Lab lúc **{s_hour}** ngày **{s_date}**")
+            st.markdown(f"### 🔍 Chi tiết trạng thái lúc **{s_hour}** ngày **{s_date}**")
             
-            # Lọc dữ liệu đặt lịch cho đúng ô thời gian này
+            # Lọc dữ liệu đặt lịch cho đúng ô thời gian này (luôn lấy từ bản full để báo chính xác)
             booked_details = df_lich_view[(df_lich_view['Ngày'] == s_date) & (df_lich_view['Ca làm việc'] == s_hour)]
-            booked_devices = booked_details['Thiết bị'].tolist()
-            free_devices = [d for d in all_devices if d not in booked_devices]
             
-            col_busy, col_free = st.columns(2)
-            with col_busy:
-                st.error("🔴 **THIẾT BỊ ĐÃ ĐƯỢC ĐẶT:**")
-                if booked_devices:
-                    for _, r in booked_details.iterrows():
-                        st.write(f"- **{r['Thiết bị']}** (bởi *{r['Người sử dụng']}*) \n  👉 *Mục đích: {r['Mục đích']}*")
+            if view_mode != "Tất cả thiết bị":
+                # Nếu đang xem 1 máy, chỉ lấy chi tiết của máy đó
+                booked_details = booked_details[booked_details['Thiết bị'] == view_mode]
+                if not booked_details.empty:
+                    r = booked_details.iloc[0]
+                    st.error(f"🔴 **{view_mode}** đang được đặt bởi **{r['Người sử dụng']}** \n\n 👉 *Mục đích: {r['Mục đích']}*")
                 else:
-                    st.write("Không có máy nào bị đặt.")
-                    
-            with col_free:
-                st.success("🟢 **THIẾT BỊ ĐANG TRỐNG:**")
-                if free_devices:
-                    for d in free_devices:
-                        st.write(f"- {d}")
-                else:
-                    st.write("Đã hết máy trống!")
+                    st.success(f"🟢 **{view_mode}** đang trống! Bạn có thể đặt lịch ngay bên dưới.")
+            else:
+                # Nếu xem tất cả thiết bị
+                booked_devices = booked_details['Thiết bị'].tolist()
+                free_devices = [d for d in all_devices if d not in booked_devices]
+                
+                col_busy, col_free = st.columns(2)
+                with col_busy:
+                    st.error("🔴 **THIẾT BỊ ĐÃ ĐƯỢC ĐẶT:**")
+                    if booked_devices:
+                        for _, r in booked_details.iterrows():
+                            st.write(f"- **{r['Thiết bị']}** (bởi *{r['Người sử dụng']}*) - *{r['Mục đích']}*")
+                    else:
+                        st.write("Không có máy nào bị đặt.")
+                        
+                with col_free:
+                    st.success("🟢 **THIẾT BỊ ĐANG TRỐNG:**")
+                    if free_devices:
+                        for d in free_devices: st.write(f"- {d}")
+                    else:
+                        st.write("Đã hết máy trống!")
         
         st.markdown("---")
 
-        # 4. Form Đăng ký / Mượn
+        # Form Đăng ký / Mượn (Giữ nguyên logic chống trùng)
         st.markdown("### 📝 Form Đăng ký & Mượn Thiết bị")
         with st.form("smart_booking"):
             c1, c2, c3 = st.columns(3)
@@ -181,13 +212,13 @@ else:
             with c2: g_picks = st.multiselect("Chọn các khung giờ", khung_gio_24h)
             with c3: 
                 tb_pick = st.selectbox("Thiết bị", all_devices if all_devices else ["Chưa có dữ liệu"])
-                note = st.text_input("Mục đích (VD: Đo phổ ZnO)")
+                note = st.text_input("Mục đích (VD: Khảo sát màng Cu2O)")
             
             c_sub, c_now = st.columns(2)
             with c_sub: btn_book = st.form_submit_button("🔥 Xác nhận Đặt lịch")
             with c_now: btn_use_now = st.form_submit_button("⚡ Mượn ngay bây giờ")
             
-            # XỬ LÝ ĐẶT LỊCH (Chống trùng thời gian thực)
+            # XỬ LÝ ĐẶT LỊCH
             if btn_book:
                 df_lich_rt = load_data(sheet_lichtuan)
                 d_str = d_pick.strftime("%d/%m/%Y")
