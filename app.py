@@ -130,7 +130,6 @@ else:
             st.session_state['logged_in'] = False
             st.rerun()
 
-    # CÂU NÓI KHÍCH LỆ
     st.markdown("""
     <div style='text-align: center; font-style: italic; color: #4b4b4b; background-color: #f1f8ff; padding: 10px; border-radius: 8px; border-left: 5px solid #0366d6; margin-bottom: 20px;'>
         "Nghiên cứu khoa học là biến những điều chưa biết thành kiến thức. Chúc bạn có một phiên làm việc hiệu quả và thu được kết quả hoàn mỹ nhất!" 🔬✨
@@ -171,7 +170,7 @@ else:
             if current_status == 'Sẵn sàng':
                 st.markdown(f"""
                 <div style='padding: 15px; border-radius: 8px; background-color: #d4edda; color: #155724; border: 1px solid #c3e6cb;'>
-                    <h4 style='margin: 0;'>🟢 <b>{view_mode}</b> đang SẴN SÀNG! Bạn có thể sử dụng ngay.</h4>
+                    <h4 style='margin: 0;'>🟢 <b>{view_mode}</b> đang SẴN SÀNG!</h4>
                 </div>
                 """, unsafe_allow_html=True)
             else:
@@ -223,7 +222,7 @@ else:
             
         st.markdown("---")
         
-        # FORM ĐĂNG KÝ HỢP NHẤT (MỘT NÚT DUY NHẤT)
+        # FORM ĐĂNG KÝ HOÀN TOÀN TỰ DO
         st.markdown(f"### 📝 Thời gian sử dụng thiết bị: **{view_mode}**")
         with st.form("smart_booking"):
             st.info("💡 **Mẹo:** Gõ trực tiếp thời gian bằng số (VD: `14:30`, `1430` hoặc `9`).")
@@ -232,46 +231,39 @@ else:
             with c1: 
                 d_pick = st.date_input("🗓️ Chọn ngày", min_value=today)
             with c2: 
-                is_now = st.checkbox("Sử dụng BÂY GIỜ", value=True)
-                if not is_now:
-                    t_start_input = st.text_input("⏳ Từ lúc:", placeholder="VD: 14:30")
-                else:
-                    t_start_input = get_now().strftime('%H:%M')
-                    st.text_input("⏳ Từ lúc (Tự động):", value=t_start_input, disabled=True)
+                # Ô luôn luôn mở, tự điền giờ hiện tại
+                t_start_input = st.text_input("⏳ Từ lúc:", value=get_now().strftime('%H:%M'))
             with c3: 
-                t_end_input = st.text_input("⏳ Đến lúc:", placeholder="VD: 16:45", value=(get_now() + timedelta(hours=1)).strftime('%H:%M'))
+                t_end_input = st.text_input("⏳ Đến lúc:", value=(get_now() + timedelta(hours=1)).strftime('%H:%M'))
             with c4: 
                 note = st.text_input("Mục đích (VD: Chạy mẫu Cu2O)")
             
             st.markdown("---")
-            # GỘP THÀNH 1 NÚT XÁC NHẬN
             btn_submit = st.form_submit_button("🔥 Xác nhận")
             
             if btn_submit:
                 t_start = parse_time(t_start_input)
                 t_end = parse_time(t_end_input)
 
-                if not t_start:
-                    st.error("❌ Lỗi: Thời gian 'Từ lúc' không hợp lệ!")
-                    st.stop()
-                if not t_end:
-                    st.error("❌ Lỗi: Thời gian 'Đến lúc' không hợp lệ!")
+                if not t_start or not t_end:
+                    st.error("❌ Lỗi: Thời gian không hợp lệ!")
                     st.stop()
 
                 d_str = d_pick.strftime("%d/%m/%Y")
                 today_str = get_now().strftime("%d/%m/%Y")
+                current_t = get_now().time()
                 
                 if t_end <= t_start:
                     st.error("❌ Lỗi: Giờ kết thúc phải lớn hơn giờ bắt đầu!")
                     st.stop()
                 
-                if d_str == today_str and t_start < get_now().time() and not is_now:
-                    st.error(f"⏳ Lỗi: Không thể đặt giờ trong quá khứ!")
+                # Chặn nếu kết thúc trong quá khứ của hôm nay
+                if d_str == today_str and t_end <= current_t:
+                    st.error(f"⏳ Lỗi: Khoảng thời gian này đã kết thúc trong quá khứ!")
                     st.stop()
                 
                 df_lich_rt = pd.DataFrame(sheet_lichtuan.get_all_records())
                 
-                # KIỂM TRA TRÙNG LỊCH THÔNG MINH
                 conflict_found = []
                 if not df_lich_rt.empty:
                     df_day_device = df_lich_rt[(df_lich_rt['Ngày'] == d_str) & (df_lich_rt['Thiết bị'] == view_mode)]
@@ -282,7 +274,7 @@ else:
                             
                             # CÓ GIAO CẮT THỜI GIAN
                             if t_start < exist_end and exist_start < t_end:
-                                # BỎ QUA NẾU NGƯỜI DÙNG LÀ CHÍNH MÌNH (Cho phép tự đè lịch của mình)
+                                # BỎ QUA NẾU NGƯỜI DÙNG LÀ CHÍNH MÌNH
                                 if row['Người sử dụng'] != st.session_state['ho_ten']:
                                     conflict_found.append(f"lúc {row['Ca làm việc']} (bởi {row['Người sử dụng']})")
                         except: pass
@@ -293,8 +285,10 @@ else:
                     ca_lam_viec_str = f"{t_start.strftime('%H:%M')} - {t_end.strftime('%H:%M')}"
                     sheet_lichtuan.append_row([d_str, ca_lam_viec_str, st.session_state['ho_ten'], view_mode, note])
                     
-                    # Hệ thống tự nhận diện: Nếu tick "Bây giờ" và chọn đúng hôm nay -> Kích hoạt mượn ngay
-                    if is_now and d_str == today_str:
+                    # Logic tự nhận diện Mượn ngay hay Đặt lịch
+                    is_active_now = (d_str == today_str) and (t_start <= current_t <= t_end)
+                    
+                    if is_active_now:
                         cell = sheet_thietbi.find(view_mode)
                         sheet_thietbi.update_cell(cell.row, 3, "Đang mượn")
                         sheet_thietbi.update_cell(cell.row, 4, st.session_state['ho_ten'])
@@ -321,9 +315,9 @@ else:
                 st.success("Bạn hiện không giữ thiết bị nào.")
             else:
                 with st.form("return_form"):
-                    st.info("💡 Bạn có thể báo cáo tình trạng máy móc (vd: hỏng hóc, cần vệ sinh) vào ô ghi chú để Lab lưu lại.")
+                    st.info("💡 Bạn có thể báo cáo tình trạng máy móc vào ô ghi chú để Lab lưu lại.")
                     dev_ret = st.selectbox("Chọn thiết bị đang giữ để trả:", my_list)
-                    return_note = st.text_input("📝 Ghi chú tình trạng (VD: Lò nung gia nhiệt ổn định, đã vệ sinh sạch sẽ...)")
+                    return_note = st.text_input("📝 Ghi chú tình trạng (VD: Máy gia nhiệt ổn định...)")
                     
                     if st.form_submit_button("Xác nhận Trả"):
                         cell = sheet_thietbi.find(dev_ret)
@@ -333,6 +327,6 @@ else:
                         action_str = f"Hoàn trả (Ghi chú: {return_note})" if return_note else "Hoàn trả"
                         sheet_lichsu.append_row([get_now().strftime("%d/%m/%Y %H:%M:%S"), st.session_state['ho_ten'], action_str, dev_ret])
                         
-                        st.success(f"✅ Đã trả thành công {dev_ret}. Cảm ơn bạn đã cập nhật tình trạng thiết bị!")
+                        st.success(f"✅ Đã trả thành công {dev_ret}.")
                         load_data.clear() 
                         st.rerun()
