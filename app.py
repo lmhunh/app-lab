@@ -22,7 +22,7 @@ st.markdown("""
     /* Đổi màu tiêu đề chính */
     h1 {
         text-align: center;
-        color: #EF2B7C; /* Màu hồng */
+        color: #FF8DA1; /* Màu hồng */
     }
     </style>
 """, unsafe_allow_html=True)
