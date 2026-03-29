@@ -100,7 +100,7 @@ def auto_return_devices():
 # 3. LOGIC ĐĂNG NHẬP
 # ==========================================
 if 'logged_in' not in st.session_state:
-    st.session_state.update({'logged_in': False, 'ho_ten': "", 'tai_khoan': ""})
+    st.session_state.update({'logged_in': False, 'ho_ten': ""})
 
 if not st.session_state['logged_in']:
     st.title("🔐 Đăng nhập Hệ thống Lab")
@@ -137,8 +137,11 @@ else:
             col_idx = df_tk.columns.get_loc("TrangThai") + 1
             sheet_taikhoan.update_cell(cell.row, col_idx, new_status)
             
+            # Ghi nhận Check-in / Check-out vào lịch sử để tính giờ
             if new_status == "🟢 Ở Lab":
-                sheet_lichsu.append_row([get_now().strftime("%d/%m/%Y %H:%M:%S"), st.session_state['ho_ten'], "📍 Check-in Lab", "", ""])
+                sheet_lichsu.append_row([get_now().strftime("%d/%m/%Y %H:%M:%S"), st.session_state['ho_ten'], "📍 Check-in", "", ""])
+            elif new_status == "⚪ Đã về":
+                sheet_lichsu.append_row([get_now().strftime("%d/%m/%Y %H:%M:%S"), st.session_state['ho_ten'], "🏃 Check-out", "", ""])
                 
             load_data.clear()
             st.rerun()
@@ -345,58 +348,85 @@ else:
                     else:
                         st.markdown(f"<div style='background-color: #f8f9fa; color: #6c757d; padding: 20px; border-radius: 10px; text-align: center; margin-bottom: 15px; border: 1px solid #dee2e6;'><h1 style='margin: 0; font-size: 30px;'>⚪</h1><h4 style='margin: 10px 0 5px 0;'>{mem_name}</h4><p style='margin: 0;'>{mem_status}</p></div>", unsafe_allow_html=True)
 
-    # ================= TAB 3: BẢNG XẾP HẠNG (GAMIFICATION) =================
+    # ================= TAB 3: BẢNG XẾP HẠNG (GAMIFICATION TIME-BASED) =================
     with tab3:
-        st.subheader("🏆 Bảng xếp hạng chăm chỉ (Tuần này)")
-        st.info("💡 Bảng xếp hạng tính từ Thứ 2 đến Chủ nhật tuần này. Điểm được cộng khi bạn Check-in '🟢 Ở Lab' và mỗi lượt sử dụng thiết bị.")
+        st.subheader("🏆 Bảng xếp hạng Thời gian (Tuần này)")
+        st.info("💡 Bảng xếp hạng dựa trên tổng số giờ thực tế có mặt tại Lab từ Thứ 2 đến Chủ nhật tuần này. Nhớ bấm '🟢 Ở Lab' khi đến và '⚪ Về' khi ra khỏi Lab để hệ thống chấm công!")
         
         df_h = load_data("LichSu")
-        # SỬA LỖI KEYERROR TẠI ĐÂY: Xóa múi giờ (tzinfo=None) cho start_of_week
         if not df_h.empty and len(df_h.columns) >= 3:
             col_time = df_h.columns[0]
             col_user = df_h.columns[1]
             col_action = df_h.columns[2]
             
             df_h['Datetime'] = pd.to_datetime(df_h[col_time], format="%d/%m/%Y %H:%M:%S", errors='coerce')
+            now_naive = get_now().replace(tzinfo=None)
             
-            now = get_now()
-            start_of_week = now - timedelta(days=now.weekday())
-            # FIX: Thêm tzinfo=None để đồng bộ với Datetime của Pandas
-            start_of_week = start_of_week.replace(hour=0, minute=0, second=0, microsecond=0, tzinfo=None)
+            start_of_week = now_naive - timedelta(days=now_naive.weekday())
+            start_of_week = start_of_week.replace(hour=0, minute=0, second=0, microsecond=0)
             
+            # Lọc dữ liệu tuần này
             df_week = df_h[(df_h['Datetime'] >= start_of_week) & (df_h[col_user] != '🤖 Hệ thống')]
             
-            if df_week.empty:
-                st.success("Tuần này chưa có ai hoạt động ở Lab. Hãy là người đầu tiên!")
+            user_stats = []
+            if not df_week.empty:
+                users = df_week[col_user].unique()
+                for u in users:
+                    # Lấy các mốc Check-in và Check-out của user đó, sắp xếp theo thời gian
+                    u_logs = df_week[(df_week[col_user] == u) & (df_week[col_action].str.contains("Check-in|Check-out", na=False))].sort_values('Datetime')
+                    
+                    total_secs = 0
+                    last_in = None
+                    
+                    for _, r in u_logs.iterrows():
+                        action = str(r[col_action])
+                        if "Check-in" in action:
+                            last_in = r['Datetime']
+                        elif "Check-out" in action and last_in is not None:
+                            total_secs += (r['Datetime'] - last_in).total_seconds()
+                            last_in = None # Đã về, reset biến last_in
+                            
+                    # Tính năng Live Ticking: Nếu người dùng chưa ấn nút "Về" -> Tính giờ từ lúc Check-in đến TẬN BÂY GIỜ
+                    if last_in is not None:
+                        total_secs += (now_naive - last_in).total_seconds()
+                        
+                    # Quy đổi giây ra giờ
+                    total_hours = round(total_secs / 3600, 1)
+                    
+                    # Đếm số lượt thao tác thiết bị để hiển thị thêm
+                    usages = len(df_week[(df_week[col_user] == u) & (~df_week[col_action].str.contains("Check-in|Check-out", na=False))])
+                    
+                    if total_hours > 0 or usages > 0:
+                        user_stats.append({'Thành viên': u, 'Tổng giờ': total_hours, 'Số lượt dùng máy': usages})
+
+            if not user_stats:
+                st.success("Chưa có dữ liệu chấm công trong tuần này. Hãy bấm '🟢 Ở Lab' để bắt đầu ghi nhận!")
             else:
-                stats = df_week.groupby(col_user).agg(
-                    So_ngay=('Datetime', lambda x: x.dt.date.nunique()),
-                    So_luot=(col_action, 'count')
-                ).reset_index()
-                
-                stats['Diem'] = stats['So_ngay'] * 10 + stats['So_luot'] * 2
-                stats = stats.sort_values(by='Diem', ascending=False).reset_index(drop=True)
+                stats = pd.DataFrame(user_stats)
+                stats = stats.sort_values(by='Tổng giờ', ascending=False).reset_index(drop=True)
                 
                 if len(stats) >= 1:
                     c1, c2, c3 = st.columns(3)
                     
+                    # Top 1
                     if len(stats) >= 1:
                         with c2:
-                            st.markdown(f"<div style='text-align:center; padding:15px; background:#fff8e1; border-radius:15px; border: 2px solid #ffc107; box-shadow: 0 4px 8px rgba(0,0,0,0.1); transform: scale(1.05);'><h1 style='font-size: 50px; margin:0;'>🥇</h1><h3 style='margin: 10px 0 5px 0; color: #b78100;'>{stats.iloc[0][col_user]}</h3><p style='margin:0; font-size:18px; font-weight:bold;'>🏆 {stats.iloc[0]['Diem']} điểm</p><p style='margin:0; font-size:12px; color:#666;'>{stats.iloc[0]['So_ngay']} ngày | {stats.iloc[0]['So_luot']} lượt</p></div>", unsafe_allow_html=True)
+                            st.markdown(f"<div style='text-align:center; padding:15px; background:#fff8e1; border-radius:15px; border: 2px solid #ffc107; box-shadow: 0 4px 8px rgba(0,0,0,0.1); transform: scale(1.05);'><h1 style='font-size: 50px; margin:0;'>🥇</h1><h3 style='margin: 10px 0 5px 0; color: #b78100;'>{stats.iloc[0]['Thành viên']}</h3><p style='margin:0; font-size:18px; font-weight:bold;'>⏱️ {stats.iloc[0]['Tổng giờ']} giờ</p><p style='margin:0; font-size:12px; color:#666;'>{stats.iloc[0]['Số lượt dùng máy']} lượt thao tác máy</p></div>", unsafe_allow_html=True)
                     
+                    # Top 2
                     if len(stats) >= 2:
                         with c1:
-                            st.markdown(f"<div style='text-align:center; padding:15px; background:#f8f9fa; border-radius:15px; border: 2px solid #adb5bd; margin-top: 30px;'><h1 style='font-size: 40px; margin:0;'>🥈</h1><h4 style='margin: 10px 0 5px 0; color: #495057;'>{stats.iloc[1][col_user]}</h4><p style='margin:0; font-size:16px; font-weight:bold;'>🏆 {stats.iloc[1]['Diem']} điểm</p><p style='margin:0; font-size:12px; color:#666;'>{stats.iloc[1]['So_ngay']} ngày | {stats.iloc[1]['So_luot']} lượt</p></div>", unsafe_allow_html=True)
+                            st.markdown(f"<div style='text-align:center; padding:15px; background:#f8f9fa; border-radius:15px; border: 2px solid #adb5bd; margin-top: 30px;'><h1 style='font-size: 40px; margin:0;'>🥈</h1><h4 style='margin: 10px 0 5px 0; color: #495057;'>{stats.iloc[1]['Thành viên']}</h4><p style='margin:0; font-size:16px; font-weight:bold;'>⏱️ {stats.iloc[1]['Tổng giờ']} giờ</p><p style='margin:0; font-size:12px; color:#666;'>{stats.iloc[1]['Số lượt dùng máy']} lượt thao tác máy</p></div>", unsafe_allow_html=True)
                     
+                    # Top 3
                     if len(stats) >= 3:
                         with c3:
-                            st.markdown(f"<div style='text-align:center; padding:15px; background:#fdf3eb; border-radius:15px; border: 2px solid #d99a6c; margin-top: 40px;'><h1 style='font-size: 35px; margin:0;'>🥉</h1><h4 style='margin: 10px 0 5px 0; color: #9c5c2d;'>{stats.iloc[2][col_user]}</h4><p style='margin:0; font-size:16px; font-weight:bold;'>🏆 {stats.iloc[2]['Diem']} điểm</p><p style='margin:0; font-size:12px; color:#666;'>{stats.iloc[2]['So_ngay']} ngày | {stats.iloc[2]['So_luot']} lượt</p></div>", unsafe_allow_html=True)
+                            st.markdown(f"<div style='text-align:center; padding:15px; background:#fdf3eb; border-radius:15px; border: 2px solid #d99a6c; margin-top: 40px;'><h1 style='font-size: 35px; margin:0;'>🥉</h1><h4 style='margin: 10px 0 5px 0; color: #9c5c2d;'>{stats.iloc[2]['Thành viên']}</h4><p style='margin:0; font-size:16px; font-weight:bold;'>⏱️ {stats.iloc[2]['Tổng giờ']} giờ</p><p style='margin:0; font-size:12px; color:#666;'>{stats.iloc[2]['Số lượt dùng máy']} lượt thao tác máy</p></div>", unsafe_allow_html=True)
 
                 st.write("")
-                st.write("")
-                st.markdown("#### Bảng tổng sắp chi tiết")
+                st.markdown("#### 🕒 Bảng chấm công chi tiết")
                 stats.index = stats.index + 1
-                stats = stats.rename(columns={col_user: 'Thành viên', 'So_ngay': 'Số ngày lên Lab', 'So_luot': 'Số lượt thao tác', 'Diem': 'Điểm tích cực'})
+                stats = stats.rename(columns={'Tổng giờ': 'Tổng thời gian tại Lab (Giờ)'})
                 st.dataframe(stats, use_container_width=True)
 
     # --- TAB 4: LỊCH CỦA TÔI ---
