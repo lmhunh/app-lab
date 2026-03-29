@@ -101,7 +101,7 @@ def auto_return_devices():
         pass
 
 # ==========================================
-# 3. LOGIC ĐĂNG NHẬP CÓ LƯU MÃ TÀI KHOẢN
+# 3. LOGIC ĐĂNG NHẬP
 # ==========================================
 if 'logged_in' not in st.session_state:
     st.session_state.update({'logged_in': False, 'ho_ten': "", 'tai_khoan': ""})
@@ -123,37 +123,54 @@ if not st.session_state['logged_in']:
 # 4. GIAO DIỆN CHÍNH
 # ==========================================
 else:
-    # Lấy dữ liệu tài khoản để kiểm tra Trạng thái Khẩn cấp
     df_tk = load_data("TaiKhoan")
     
-    # ---------------- SIDEBAR (Menu bên trái) ----------------
+    # ---------------- SIDEBAR: QUẢN LÝ TRẠNG THÁI CÁ NHÂN ----------------
     with st.sidebar:
         st.markdown(f"### 👤 {st.session_state['ho_ten']}")
         st.markdown("---")
         
-        # NÚT KHẨN CẤP
         if "TrangThai" in df_tk.columns:
-            my_status = df_tk[df_tk['TaiKhoan'].astype(str) == str(st.session_state['tai_khoan'])]['TrangThai'].values
-            current_my_status = my_status[0] if len(my_status) > 0 else "Bình thường"
+            my_status_arr = df_tk[df_tk['TaiKhoan'].astype(str) == str(st.session_state['tai_khoan'])]['TrangThai'].values
+            current_my_status = my_status_arr[0] if len(my_status_arr) > 0 and my_status_arr[0] != "" else "⚪ Đã về"
             
-            if current_my_status != "CẦN TRỢ GIÚP":
-                st.info("🟢 Trạng thái: An toàn")
+            # Nếu đang trong tình trạng báo động
+            if current_my_status == "CẦN TRỢ GIÚP":
+                st.markdown("<div style='background-color: #ff4b4b; color: white; padding: 10px; border-radius: 5px; text-align: center; font-weight: bold; margin-bottom: 10px; box-shadow: 0 0 10px #ff4b4b;'>🚨 BẠN ĐANG PHÁT TÍN HIỆU CẤP CỨU!</div>", unsafe_allow_html=True)
+                if st.button("✅ Đã an toàn (Hủy báo động)", use_container_width=True):
+                    cell = sheet_taikhoan.find(str(st.session_state['tai_khoan']))
+                    col_idx = df_tk.columns.get_loc("TrangThai") + 1
+                    sheet_taikhoan.update_cell(cell.row, col_idx, "🟢 Ở Lab")
+                    load_data.clear()
+                    st.rerun()
+            else:
+                # Cập nhật trạng thái cá nhân (Check-in / Check-out)
+                st.write("**Chỉnh sửa trạng thái của bạn:**")
+                status_options = ["🟢 Ở Lab", "🟡 Đang bận", "⚪ Đã về"]
+                try: default_idx = status_options.index(current_my_status)
+                except: default_idx = 2
+                
+                new_status = st.selectbox("Tùy chọn", status_options, index=default_idx, label_visibility="collapsed")
+                
+                # Tự động đồng bộ lên Google Sheets ngay khi người dùng đổi selectbox
+                if new_status != current_my_status:
+                    cell = sheet_taikhoan.find(str(st.session_state['tai_khoan']))
+                    col_idx = df_tk.columns.get_loc("TrangThai") + 1
+                    sheet_taikhoan.update_cell(cell.row, col_idx, new_status)
+                    load_data.clear()
+                    st.rerun()
+                
+                st.markdown("---")
+                # Nút Khẩn Cấp luôn chực chờ
+                st.write("**Báo động toàn Lab:**")
                 if st.button("🆘 NÚT KHẨN CẤP", use_container_width=True, type="primary"):
                     cell = sheet_taikhoan.find(str(st.session_state['tai_khoan']))
                     col_idx = df_tk.columns.get_loc("TrangThai") + 1
                     sheet_taikhoan.update_cell(cell.row, col_idx, "CẦN TRỢ GIÚP")
                     load_data.clear()
                     st.rerun()
-            else:
-                st.markdown("<div style='background-color: #ff4b4b; color: white; padding: 10px; border-radius: 5px; text-align: center; font-weight: bold; margin-bottom: 10px; box-shadow: 0 0 10px #ff4b4b;'>🚨 BẠN ĐANG PHÁT TÍN HIỆU CẤP CỨU!</div>", unsafe_allow_html=True)
-                if st.button("✅ Đã an toàn (Hủy báo động)", use_container_width=True):
-                    cell = sheet_taikhoan.find(str(st.session_state['tai_khoan']))
-                    col_idx = df_tk.columns.get_loc("TrangThai") + 1
-                    sheet_taikhoan.update_cell(cell.row, col_idx, "Bình thường")
-                    load_data.clear()
-                    st.rerun()
         else:
-            st.warning("⚠️ Admin hãy thêm cột 'TrangThai' vào sheet TaiKhoan để dùng tính năng Khẩn Cấp.")
+            st.warning("⚠️ Admin hãy thêm cột 'TrangThai' vào sheet TaiKhoan để dùng tính năng Check-in & Khẩn Cấp.")
             
         st.markdown("---")
         if st.button("🚪 Đăng xuất", use_container_width=True):
@@ -163,7 +180,7 @@ else:
     # ---------------- NỘI DUNG CHÍNH ----------------
     st.title("📅 Hệ thống Quản lý Thiết bị Lab")
     
-    # Hiệu ứng nhấp nháy báo động TOÀN HỆ THỐNG nếu có ai đó ấn nút 🆘
+    # Hiệu ứng nhấp nháy báo động TOÀN HỆ THỐNG
     if "TrangThai" in df_tk.columns and "CẦN TRỢ GIÚP" in df_tk['TrangThai'].values:
         nguoi_can_giup = df_tk[df_tk['TrangThai'] == 'CẦN TRỢ GIÚP']['HoTen'].tolist()
         st.markdown(f"""
@@ -171,9 +188,7 @@ else:
             <h2 style='margin:0; color: white;'>🚨 CẢNH BÁO KHẨN CẤP TỪ: {', '.join(nguoi_can_giup)} 🚨</h2>
             <p style='margin:0; font-size: 1.2rem; color: white;'>Vui lòng kiểm tra phòng Lab ngay lập tức!</p>
         </div>
-        <style>
-            @keyframes blinker {{ 50% {{ opacity: 0.5; }} }}
-        </style>
+        <style>@keyframes blinker {{ 50% {{ opacity: 0.5; }} }}</style>
         """, unsafe_allow_html=True)
 
     auto_return_devices()
@@ -186,10 +201,9 @@ else:
     days_7 = [(today + timedelta(days=i)).strftime("%d/%m/%Y") for i in range(7)]
     time_options = [f"{h:02d}:{m:02d}" for h in range(24) for m in (0, 15, 30, 45)]
 
-    # CẤU TRÚC TAB MỚI (Đã gộp Tab 1 & 2)
     tab1, tab2, tab3, tab4, tab5 = st.tabs(["📊 Trạng thái & Đăng ký", "👥 Thành viên Lab", "📋 Lịch của tôi", "🕒 Lịch sử", "🔄 Trả thiết bị"])
 
-    # ================= TAB 1: GỘP BẢNG TRẠNG THÁI VÀ ĐĂNG KÝ =================
+    # ================= TAB 1: BẢNG TRẠNG THÁI VÀ ĐĂNG KÝ =================
     with tab1:
         st.subheader("1. Tình trạng thiết bị hiện tại")
         if not df_tb.empty:
@@ -220,34 +234,20 @@ else:
         st.write("") 
 
         with st.expander(f"👉 Mở Biểu đồ sử dụng của [{view_mode}]", expanded=True):
-            zoom_level = st.slider("🔍 Zoom trục thời gian", min_value=30, max_value=150, value=60, label_visibility="collapsed")
             df_dev = df_lich_view[df_lich_view['Thiết bị'] == view_mode] if not df_lich_view.empty else pd.DataFrame()
             if not df_dev.empty:
                 df_dev = df_dev.drop_duplicates(subset=['Ngày', 'Ca làm việc', 'Thiết bị'])
             
-            total_h = 24 * zoom_level
-            header_h = 40
-            html_timeline = f"<div style='width: 100%; max-height: 450px; overflow-y: auto; overflow-x: auto; border: 1px solid #ddd; border-radius: 5px; box-shadow: 0 2px 5px rgba(0,0,0,0.1); background: white;'><div style='display: flex; min-width: 800px; height: {total_h + header_h + 20}px; position: relative;'><div style='width: 60px; flex-shrink: 0; border-right: 1px solid #ccc; position: sticky; left: 0; background: white; z-index: 10;'><div style='height: {header_h}px; border-bottom: 1px solid #ccc; background: #f8f9fa; position: sticky; top: 0; z-index: 11;'></div>"
-            for h in range(25):
-                top_pos = header_h + h * zoom_level
-                html_timeline += f"<div style='position: absolute; top: {top_pos}px; right: 8px; transform: translateY(-50%); font-size: 11px; color: #555; font-weight: bold;'>{h:02d}:00</div>"
-            html_timeline += "</div>"
+            html_timeline = "<div style='width: 100%; font-family: sans-serif; overflow-x: auto; padding-bottom: 10px;'><div style='display: flex; align-items: flex-end; width: 100%; min-width: 700px; margin-bottom: 5px; font-size: 11px; color: #666; font-weight: bold;'><div style='width: 70px;'></div><div style='flex-grow: 1; position: relative; height: 20px; border-bottom: 2px solid #aaa;'>"
+            for h in range(0, 25, 2):
+                left_pct = (h / 24.0) * 100
+                html_timeline += f"<div style='position: absolute; left: {left_pct}%; transform: translateX(-50%); bottom: 2px;'>{h:02d}:00</div><div style='position: absolute; left: {left_pct}%; width: 2px; height: 6px; background-color: #aaa; bottom: -2px; transform: translateX(-50%);'></div>"
+            html_timeline += "</div></div>"
             
             for d in days_7:
-                html_timeline += f"<div style='flex: 1; min-width: 100px; position: relative; border-right: 1px solid #eee;'>"
-                is_today = (d == get_now().strftime("%d/%m/%Y"))
-                bg_header = "#e8f0fe" if is_today else "#f8f9fa"
-                color_header = "#1a73e8" if is_today else "#333"
-                html_timeline += f"<div style='height: {header_h}px; display: flex; align-items: center; justify-content: center; background: {bg_header}; border-bottom: 1px solid #ccc; font-weight: bold; font-size: 13px; color: {color_header}; position: sticky; top: 0; z-index: 5;'>{d[:5]}</div>"
-                
-                for h in range(1, 24):
-                    top_pos = header_h + h * zoom_level
-                    html_timeline += f"<div style='position: absolute; top: {top_pos}px; left: 0; width: 100%; height: 1px; background: #e9ecef; z-index: 1;'></div>"
-                
-                if is_today:
-                    now_h = get_now().hour + get_now().minute / 60.0
-                    now_top = header_h + now_h * zoom_level
-                    html_timeline += f"<div style='position: absolute; top: {now_top}px; left: 0; width: 100%; height: 2px; background: #ea4335; z-index: 3;'></div>"
+                html_timeline += f"<div style='display: flex; align-items: center; margin-bottom: 10px; min-width: 700px;'><div style='width: 70px; font-size: 13px; font-weight: bold; color: #444;'>{d[:5]}</div><div style='flex-grow: 1; position: relative; height: 36px; background-color: #e9ecef; border-radius: 4px; border: 1px solid #ddd;'>"
+                for h in range(2, 24, 2):
+                    html_timeline += f"<div style='position: absolute; left: {(h/24)*100}%; width: 1px; height: 100%; background-color: #cfd4da; z-index: 1;'></div>"
                 
                 df_day = df_dev[df_dev['Ngày'] == d]
                 if not df_day.empty:
@@ -258,23 +258,23 @@ else:
                                 s_str, e_str = ca.split(" - ")
                                 s_time = parse_time(s_str)
                                 e_time = parse_time(e_str)
-                                start_float = s_time.hour + s_time.minute / 60.0
-                                end_float = e_time.hour + e_time.minute / 60.0
-                                if end_float <= start_float: end_float = 24.0
-                                top_px = header_h + start_float * zoom_level
-                                height_px = (end_float - start_float) * zoom_level
+                                start_min = s_time.hour * 60 + s_time.minute
+                                end_min = e_time.hour * 60 + e_time.minute
+                                if end_min <= start_min: end_min = 24 * 60
+                                
+                                left_pct = (start_min / (24 * 60)) * 100
+                                width_pct = ((end_min - start_min) / (24 * 60)) * 100
                                 user = r['Người sử dụng']
                                 is_me = user == st.session_state.get('ho_ten', '')
-                                color = "#1a73e8" if is_me else "#9e9e9e" 
-                                tooltip = f"⌚ {s_str} - {e_str} | 👤 {user} | 📝 {r.get('Mục đích', '')}"
-                                display_text = f"<span style='font-weight:bold;'>{user}</span><br>{s_str}-{e_str}" if height_px > 30 else (f"{user}" if height_px > 15 else "")
-                                block_html = f"<div title='{tooltip}' style='position: absolute; top: {top_px}px; left: 4px; right: 4px; height: {height_px}px; background-color: {color}; border-radius: 4px; color: white; font-size: 11px; padding: 2px; overflow: hidden; box-shadow: 0 1px 3px rgba(0,0,0,0.2); z-index: 2; text-align: center; line-height: 1.2; display: flex; flex-direction: column; justify-content: center; opacity: 0.9;'>{display_text}</div>"
+                                color = "#1a73e8" if is_me else "#ea4335" 
+                                display_text = f"{s_str}-{e_str} ({user})"
+                                
+                                block_html = f"<div style='position: absolute; left: {left_pct}%; width: {width_pct}%; height: 100%; background-color: {color}; border-radius: 4px; color: white; font-size: 11px; display: flex; align-items: center; justify-content: center; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; box-shadow: 0 1px 3px rgba(0,0,0,0.3); z-index: 2;'><span style='padding: 0 4px;'>{display_text}</span></div>"
                                 html_timeline += block_html
                             except: pass
-                html_timeline += "</div>"
-            html_timeline += "</div></div>"
+                html_timeline += "</div></div>"
+            html_timeline += "</div>"
             st.markdown(html_timeline, unsafe_allow_html=True)
-            st.markdown("<div style='margin-top: 5px; font-size: 13px;'>🟦 <b>Bạn</b> &nbsp;&nbsp;&nbsp; ⬜ <b>Người khác</b> &nbsp;&nbsp;&nbsp; 🟥 <b>Giờ hiện tại</b></div>", unsafe_allow_html=True)
             
         with st.form("smart_booking"):
             c1, c2, c3, c4 = st.columns([1.5, 1, 1, 2])
@@ -288,7 +288,7 @@ else:
             with c4: 
                 note = st.text_input("Mục đích (VD: Đo phổ ZnO)")
             
-            btn_submit = st.form_submit_button("🔥 Xác nhận Đăng ký", use_container_width=True)
+            btn_submit = st.form_submit_button("🔥 Xác nhận")
             
             if btn_submit:
                 t_start = parse_time(t_start_str)
@@ -330,19 +330,19 @@ else:
                         st.success(f"✅ Đã chốt lịch sử dụng {view_mode} thành công!")
                     load_data.clear(); st.rerun()
 
-    # ================= TAB 2: THÀNH VIÊN LAB (MỚI) =================
+    # ================= TAB 2: THÀNH VIÊN LAB =================
     with tab2:
         st.subheader("👥 Trạng thái Thành viên Lab")
-        st.info("💡 Bảng theo dõi tình trạng an toàn của mọi người trong Lab.")
+        st.info("💡 Bảng theo dõi tình trạng an toàn và tiến độ làm việc của mọi người trong Lab.")
         
         if "TrangThai" not in df_tk.columns:
             st.warning("Vui lòng truy cập file Google Sheets, thêm cột 'TrangThai' vào trang tính 'TaiKhoan' để tính năng này hoạt động.")
         else:
-            cols = st.columns(4) # Chia lưới 4 cột
+            cols = st.columns(4) 
             for idx, row in df_tk.iterrows():
                 mem_name = row['HoTen']
-                mem_status = row.get('TrangThai', 'Bình thường')
-                if not mem_status: mem_status = "Bình thường"
+                mem_status = row.get('TrangThai', '⚪ Đã về')
+                if not mem_status: mem_status = "⚪ Đã về"
                 
                 with cols[idx % 4]:
                     if mem_status == "CẦN TRỢ GIÚP":
@@ -353,12 +353,28 @@ else:
                             <p style='margin: 0; font-weight: bold;'>ĐANG GẶP NGUY HIỂM!</p>
                         </div>
                         """, unsafe_allow_html=True)
+                    elif "Ở Lab" in mem_status:
+                        st.markdown(f"""
+                        <div style='background-color: #d4edda; color: #155724; padding: 20px; border-radius: 10px; text-align: center; margin-bottom: 15px; border: 1px solid #c3e6cb;'>
+                            <h1 style='margin: 0; font-size: 30px;'>🟢</h1>
+                            <h4 style='margin: 10px 0 5px 0;'>{mem_name}</h4>
+                            <p style='margin: 0;'>{mem_status}</p>
+                        </div>
+                        """, unsafe_allow_html=True)
+                    elif "Đang bận" in mem_status:
+                        st.markdown(f"""
+                        <div style='background-color: #fff3cd; color: #856404; padding: 20px; border-radius: 10px; text-align: center; margin-bottom: 15px; border: 1px solid #ffeeba;'>
+                            <h1 style='margin: 0; font-size: 30px;'>🟡</h1>
+                            <h4 style='margin: 10px 0 5px 0;'>{mem_name}</h4>
+                            <p style='margin: 0;'>{mem_status}</p>
+                        </div>
+                        """, unsafe_allow_html=True)
                     else:
                         st.markdown(f"""
-                        <div style='background-color: #f8f9fa; color: #333; padding: 20px; border-radius: 10px; text-align: center; margin-bottom: 15px; border: 1px solid #ddd;'>
-                            <h1 style='margin: 0; font-size: 30px;'>🟢</h1>
-                            <h4 style='margin: 10px 0 5px 0; color: #333;'>{mem_name}</h4>
-                            <p style='margin: 0; color: #666;'>Bình thường</p>
+                        <div style='background-color: #f8f9fa; color: #6c757d; padding: 20px; border-radius: 10px; text-align: center; margin-bottom: 15px; border: 1px solid #dee2e6;'>
+                            <h1 style='margin: 0; font-size: 30px;'>⚪</h1>
+                            <h4 style='margin: 10px 0 5px 0;'>{mem_name}</h4>
+                            <p style='margin: 0;'>{mem_status}</p>
                         </div>
                         """, unsafe_allow_html=True)
 
