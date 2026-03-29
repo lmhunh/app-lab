@@ -121,23 +121,26 @@ if not st.session_state['logged_in']:
 else:
     df_tk = load_data("TaiKhoan")
     
-    # --- TỰ ĐỘNG TẠO CỘT 'TrangThai' NẾU CHƯA CÓ TRONG SHEETS ---
     if not df_tk.empty and "TrangThai" not in df_tk.columns:
         num_cols = len(df_tk.columns)
         sheet_taikhoan.update_cell(1, num_cols + 1, "TrangThai")
         load_data.clear()
         df_tk = load_data("TaiKhoan")
         
-    # ---------------- SIDEBAR (Menu bên trái) ----------------
+    # ---------------- SIDEBAR: QUẢN LÝ TRẠNG THÁI CÁ NHÂN ----------------
     with st.sidebar:
         st.markdown(f"### 👤 {st.session_state['ho_ten']}")
         st.markdown("---")
         
-        # Hàm cập nhật trạng thái nhanh
         def update_status(new_status):
             cell = sheet_taikhoan.find(str(st.session_state['tai_khoan']))
             col_idx = df_tk.columns.get_loc("TrangThai") + 1
             sheet_taikhoan.update_cell(cell.row, col_idx, new_status)
+            
+            # Nếu người dùng bấm Ở Lab, ghi nhận luôn vào Lịch sử để cộng điểm Xếp hạng
+            if new_status == "🟢 Ở Lab":
+                sheet_lichsu.append_row([get_now().strftime("%d/%m/%Y %H:%M:%S"), st.session_state['ho_ten'], "📍 Check-in Lab", "", ""])
+                
             load_data.clear()
             st.rerun()
 
@@ -152,11 +155,11 @@ else:
             st.write("**Trạng thái của bạn:**")
             c1, c2, c3 = st.columns(3)
             with c1:
-                if st.button("🟢 Lab", use_container_width=True, help="Tôi đang ở Lab"): update_status("🟢 Ở Lab")
+                if st.button("🟢 Lab", use_container_width=True): update_status("🟢 Ở Lab")
             with c2:
-                if st.button("🟡 Bận", use_container_width=True, help="Tôi đang bận tay"): update_status("🟡 Đang bận")
+                if st.button("🟡 Bận", use_container_width=True): update_status("🟡 Đang bận")
             with c3:
-                if st.button("⚪ Về", use_container_width=True, help="Tôi đã về"): update_status("⚪ Đã về")
+                if st.button("⚪ Về", use_container_width=True): update_status("⚪ Đã về")
                 
             st.markdown(f"Đang hiển thị: **{current_my_status}**")
             
@@ -192,7 +195,8 @@ else:
     days_7 = [(today + timedelta(days=i)).strftime("%d/%m/%Y") for i in range(7)]
     time_options = [f"{h:02d}:{m:02d}" for h in range(24) for m in (0, 15, 30, 45)]
 
-    tab1, tab2, tab3, tab4, tab5 = st.tabs(["📊 Trạng thái & Đăng ký", "👥 Thành viên Lab", "📋 Lịch của tôi", "🕒 Lịch sử", "🔄 Trả thiết bị"])
+    # CẤU TRÚC 6 TABS (Thêm Tab Bảng Xếp Hạng)
+    tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs(["📊 Trạng thái & Đăng ký", "👥 Thành viên", "🏆 Bảng xếp hạng", "📋 Lịch của tôi", "🕒 Lịch sử", "🔄 Trả thiết bị"])
 
     # ================= TAB 1: BẢNG TRẠNG THÁI VÀ ĐĂNG KÝ =================
     with tab1:
@@ -324,50 +328,85 @@ else:
     # ================= TAB 2: THÀNH VIÊN LAB =================
     with tab2:
         st.subheader("👥 Trạng thái Thành viên Lab")
-        st.info("💡 Bảng theo dõi tình trạng an toàn và tiến độ làm việc của mọi người trong Lab.")
-        
-        cols = st.columns(4) 
-        for idx, row in df_tk.iterrows():
-            mem_name = row['HoTen']
-            mem_status = row.get('TrangThai', '⚪ Đã về')
-            if not mem_status: mem_status = "⚪ Đã về"
-            
-            with cols[idx % 4]:
-                if mem_status == "CẦN TRỢ GIÚP":
-                    st.markdown(f"""
-                    <div style='background-color: #ff4b4b; color: white; padding: 20px; border-radius: 10px; text-align: center; margin-bottom: 15px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); border: 2px solid darkred;'>
-                        <h1 style='margin: 0; font-size: 30px;'>🚨</h1>
-                        <h4 style='margin: 10px 0 5px 0; color: white;'>{mem_name}</h4>
-                        <p style='margin: 0; font-weight: bold;'>ĐANG GẶP NGUY HIỂM!</p>
-                    </div>
-                    """, unsafe_allow_html=True)
-                elif "Ở Lab" in mem_status:
-                    st.markdown(f"""
-                    <div style='background-color: #d4edda; color: #155724; padding: 20px; border-radius: 10px; text-align: center; margin-bottom: 15px; border: 1px solid #c3e6cb;'>
-                        <h1 style='margin: 0; font-size: 30px;'>🟢</h1>
-                        <h4 style='margin: 10px 0 5px 0;'>{mem_name}</h4>
-                        <p style='margin: 0;'>{mem_status}</p>
-                    </div>
-                    """, unsafe_allow_html=True)
-                elif "Đang bận" in mem_status:
-                    st.markdown(f"""
-                    <div style='background-color: #fff3cd; color: #856404; padding: 20px; border-radius: 10px; text-align: center; margin-bottom: 15px; border: 1px solid #ffeeba;'>
-                        <h1 style='margin: 0; font-size: 30px;'>🟡</h1>
-                        <h4 style='margin: 10px 0 5px 0;'>{mem_name}</h4>
-                        <p style='margin: 0;'>{mem_status}</p>
-                    </div>
-                    """, unsafe_allow_html=True)
-                else:
-                    st.markdown(f"""
-                    <div style='background-color: #f8f9fa; color: #6c757d; padding: 20px; border-radius: 10px; text-align: center; margin-bottom: 15px; border: 1px solid #dee2e6;'>
-                        <h1 style='margin: 0; font-size: 30px;'>⚪</h1>
-                        <h4 style='margin: 10px 0 5px 0;'>{mem_name}</h4>
-                        <p style='margin: 0;'>{mem_status}</p>
-                    </div>
-                    """, unsafe_allow_html=True)
+        if "TrangThai" not in df_tk.columns:
+            st.warning("Đang tự động cập nhật cơ sở dữ liệu...")
+        else:
+            cols = st.columns(4) 
+            for idx, row in df_tk.iterrows():
+                mem_name = row['HoTen']
+                mem_status = row.get('TrangThai', '⚪ Đã về')
+                if not mem_status: mem_status = "⚪ Đã về"
+                
+                with cols[idx % 4]:
+                    if mem_status == "CẦN TRỢ GIÚP":
+                        st.markdown(f"<div style='background-color: #ff4b4b; color: white; padding: 20px; border-radius: 10px; text-align: center; margin-bottom: 15px; border: 2px solid darkred;'><h1 style='margin: 0; font-size: 30px;'>🚨</h1><h4 style='margin: 10px 0 5px 0; color: white;'>{mem_name}</h4><p style='margin: 0; font-weight: bold;'>ĐANG GẶP NGUY HIỂM!</p></div>", unsafe_allow_html=True)
+                    elif "Ở Lab" in mem_status:
+                        st.markdown(f"<div style='background-color: #d4edda; color: #155724; padding: 20px; border-radius: 10px; text-align: center; margin-bottom: 15px; border: 1px solid #c3e6cb;'><h1 style='margin: 0; font-size: 30px;'>🟢</h1><h4 style='margin: 10px 0 5px 0;'>{mem_name}</h4><p style='margin: 0;'>{mem_status}</p></div>", unsafe_allow_html=True)
+                    elif "Đang bận" in mem_status:
+                        st.markdown(f"<div style='background-color: #fff3cd; color: #856404; padding: 20px; border-radius: 10px; text-align: center; margin-bottom: 15px; border: 1px solid #ffeeba;'><h1 style='margin: 0; font-size: 30px;'>🟡</h1><h4 style='margin: 10px 0 5px 0;'>{mem_name}</h4><p style='margin: 0;'>{mem_status}</p></div>", unsafe_allow_html=True)
+                    else:
+                        st.markdown(f"<div style='background-color: #f8f9fa; color: #6c757d; padding: 20px; border-radius: 10px; text-align: center; margin-bottom: 15px; border: 1px solid #dee2e6;'><h1 style='margin: 0; font-size: 30px;'>⚪</h1><h4 style='margin: 10px 0 5px 0;'>{mem_name}</h4><p style='margin: 0;'>{mem_status}</p></div>", unsafe_allow_html=True)
 
-    # --- TAB 3: LỊCH CỦA TÔI ---
+    # ================= TAB 3: BẢNG XẾP HẠNG (GAMIFICATION) =================
     with tab3:
+        st.subheader("🏆 Bảng xếp hạng chăm chỉ (Tuần này)")
+        st.info("💡 Bảng xếp hạng tính từ Thứ 2 đến Chủ nhật tuần này. Điểm được cộng khi bạn Check-in '🟢 Ở Lab' và mỗi lượt sử dụng thiết bị.")
+        
+        df_h = load_data("LichSu")
+        if not df_h.empty:
+            df_h['Datetime'] = pd.to_datetime(df_h['Ngày giờ'], format="%d/%m/%Y %H:%M:%S", errors='coerce')
+            
+            # Lấy thời điểm đầu tuần (Thứ 2)
+            now = get_now()
+            start_of_week = now - timedelta(days=now.weekday())
+            start_of_week = start_of_week.replace(hour=0, minute=0, second=0, microsecond=0)
+            
+            # Lọc dữ liệu tuần này và bỏ qua thao tác của Robot
+            df_week = df_h[(df_h['Datetime'] >= start_of_week) & (df_h['Người thực hiện'] != '🤖 Hệ thống')]
+            
+            if df_week.empty:
+                st.success("Tuần này chưa có ai hoạt động ở Lab. Hãy là người đầu tiên!")
+            else:
+                # Tính toán thống kê
+                stats = df_week.groupby('Người thực hiện').agg(
+                    So_ngay=('Datetime', lambda x: x.dt.date.nunique()),
+                    So_luot=('Hành động', 'count')
+                ).reset_index()
+                
+                # Công thức tính điểm: 10 điểm cho mỗi ngày có mặt + 2 điểm cho mỗi lượt tương tác thiết bị
+                stats['Diem'] = stats['So_ngay'] * 10 + stats['So_luot'] * 2
+                stats = stats.sort_values(by='Diem', ascending=False).reset_index(drop=True)
+                
+                # Vẽ bục vinh quang Top 3
+                if len(stats) >= 1:
+                    c1, c2, c3 = st.columns(3)
+                    
+                    # Top 1 (Ở giữa)
+                    if len(stats) >= 1:
+                        with c2:
+                            st.markdown(f"<div style='text-align:center; padding:15px; background:#fff8e1; border-radius:15px; border: 2px solid #ffc107; box-shadow: 0 4px 8px rgba(0,0,0,0.1); transform: scale(1.05);'><h1 style='font-size: 50px; margin:0;'>🥇</h1><h3 style='margin: 10px 0 5px 0; color: #b78100;'>{stats.iloc[0]['Người thực hiện']}</h3><p style='margin:0; font-size:18px; font-weight:bold;'>🏆 {stats.iloc[0]['Diem']} điểm</p><p style='margin:0; font-size:12px; color:#666;'>{stats.iloc[0]['So_ngay']} ngày | {stats.iloc[0]['So_luot']} lượt</p></div>", unsafe_allow_html=True)
+                    
+                    # Top 2 (Bên trái)
+                    if len(stats) >= 2:
+                        with c1:
+                            st.markdown(f"<div style='text-align:center; padding:15px; background:#f8f9fa; border-radius:15px; border: 2px solid #adb5bd; margin-top: 30px;'><h1 style='font-size: 40px; margin:0;'>🥈</h1><h4 style='margin: 10px 0 5px 0; color: #495057;'>{stats.iloc[1]['Người thực hiện']}</h4><p style='margin:0; font-size:16px; font-weight:bold;'>🏆 {stats.iloc[1]['Diem']} điểm</p><p style='margin:0; font-size:12px; color:#666;'>{stats.iloc[1]['So_ngay']} ngày | {stats.iloc[1]['So_luot']} lượt</p></div>", unsafe_allow_html=True)
+                    
+                    # Top 3 (Bên phải)
+                    if len(stats) >= 3:
+                        with c3:
+                            st.markdown(f"<div style='text-align:center; padding:15px; background:#fdf3eb; border-radius:15px; border: 2px solid #d99a6c; margin-top: 40px;'><h1 style='font-size: 35px; margin:0;'>🥉</h1><h4 style='margin: 10px 0 5px 0; color: #9c5c2d;'>{stats.iloc[2]['Người thực hiện']}</h4><p style='margin:0; font-size:16px; font-weight:bold;'>🏆 {stats.iloc[2]['Diem']} điểm</p><p style='margin:0; font-size:12px; color:#666;'>{stats.iloc[2]['So_ngay']} ngày | {stats.iloc[2]['So_luot']} lượt</p></div>", unsafe_allow_html=True)
+
+                st.write("")
+                st.write("")
+                
+                # Bảng chi tiết phía dưới
+                st.markdown("#### Bảng tổng sắp chi tiết")
+                stats.index = stats.index + 1 # Đánh số thứ tự từ 1
+                stats = stats.rename(columns={'Người thực hiện': 'Thành viên', 'So_ngay': 'Số ngày lên Lab', 'So_luot': 'Số lượt thiết bị', 'Diem': 'Điểm tích cực'})
+                st.dataframe(stats, use_container_width=True)
+
+    # --- TAB 4: LỊCH CỦA TÔI ---
+    with tab4:
         st.subheader("📋 Các lịch bạn đã đăng ký (Từ hôm nay)")
         my_raw_bookings = df_lich_view[df_lich_view['Người sử dụng'] == st.session_state['ho_ten']]
         valid_bookings, cancel_options = [], []
@@ -401,14 +440,14 @@ else:
                             sheet_lichsu.append_row([get_now().strftime("%d/%m/%Y %H:%M:%S"), st.session_state['ho_ten'], f"Hủy lịch ({ca})", dev, "Tự hủy"])
                             st.success(f"✅ Đã hủy lịch {dev}."); load_data.clear(); st.rerun()
 
-    # --- TAB 4: LỊCH SỬ ---
-    with tab4:
+    # --- TAB 5: LỊCH SỬ ---
+    with tab5:
         st.subheader("Lịch sử hoạt động")
         df_h = load_data("LichSu")
         if not df_h.empty: st.dataframe(df_h.iloc[::-1], use_container_width=True, hide_index=True)
 
-    # --- TAB 5: TRẢ THIẾT BỊ ---
-    with tab5:
+    # --- TAB 6: TRẢ THIẾT BỊ ---
+    with tab6:
         st.subheader("🔄 Hoàn trả & Ghi chú tình trạng thiết bị")
         if "Người sử dụng" in df_tb.columns:
             my_list = df_tb[df_tb["Người sử dụng"] == st.session_state['ho_ten']]['Tên'].tolist()
