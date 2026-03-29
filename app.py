@@ -110,7 +110,7 @@ if not st.session_state['logged_in']:
     col1, col2, col3 = st.columns([1, 2, 1])
     with col2:
         st.markdown("<h1 style='text-align: center; color: #1a73e8;'>🔬 Lab Space</h1>", unsafe_allow_html=True)
-        st.markdown("<p style='text-align: center; color: #666;'>Hệ thống quản lý không gian nghiên cứu</p>", unsafe_allow_html=True)
+        st.markdown("<p style='text-align: center; color: #666;'>Mỗi ngày lên Lab là một ngày vui \n Sẽ vui hơn nếu chúng ta làm việc chăm chỉ</p>", unsafe_allow_html=True)
         with st.form("login"):
             u = st.text_input("Tài khoản sinh viên")
             p = st.text_input("Mật khẩu", type="password")
