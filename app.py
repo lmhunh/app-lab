@@ -7,17 +7,23 @@ import time
 # ==========================================
 # 1. CẤU HÌNH & KẾT NỐI (GMT+7)
 # ==========================================
-st.set_page_config(page_title="Smart Lab Space", page_icon="🔬", layout="wide", initial_sidebar_state="expanded")
+# Sửa tiêu đề trang hiển thị trên tab trình duyệt
+st.set_page_config(page_title="Lab 109 - Quản lý Lab", page_icon="🔬", layout="wide", initial_sidebar_state="expanded")
 
 VN_TZ = timezone(timedelta(hours=7))
 
-# Custom CSS cho phong cách Gen Z: Bo tròn, đổ bóng mềm, font chữ hiện đại
+# Custom CSS cho phong cách Gen Z: Bo tròn, đổ bóng mềm, font chữ hiện đại, tiêu đề màu hồng
 st.markdown("""
     <style>
     .stButton>button { border-radius: 12px; transition: all 0.3s ease; font-weight: bold; }
     .stButton>button:hover { transform: translateY(-2px); box-shadow: 0 4px 10px rgba(0,0,0,0.1); }
     .css-1d391kg { padding-top: 1rem; }
     div[data-testid="stExpander"] { border-radius: 12px; border: 1px solid #e0e0e0; box-shadow: 0 2px 5px rgba(0,0,0,0.05); }
+    /* Đổi màu tiêu đề chính */
+    h1 {
+        text-align: center;
+        color: #ff69b4; /* Màu hồng */
+    }
     </style>
 """, unsafe_allow_html=True)
 
@@ -109,8 +115,18 @@ if 'logged_in' not in st.session_state:
 if not st.session_state['logged_in']:
     col1, col2, col3 = st.columns([1, 2, 1])
     with col2:
-        st.markdown("<h1 style='text-align: center; color: #1a73e8;'>🔬 Lab Space</h1>", unsafe_allow_html=True)
-        st.markdown("<p style='text-align: center; color: #666;'>Mỗi ngày lên Lab là một ngày vui \n Sẽ vui hơn nếu chúng ta làm việc chăm chỉ</p>", unsafe_allow_html=True)
+        # Đã đổi tên thành Lab 109 và màu sang hồng nhờ CSS ở trên
+        st.markdown("<h1 style='text-align: center;'>🔬 Lab 109</h1>", unsafe_allow_html=True)
+        
+        # Cập nhật Slogan mới, viết thành 2 dòng và thêm icon cờ đan nhau
+        st.markdown("""
+            <p style='text-align: center; color: #666; font-size: 1.1em;'>
+                Mỗi ngày đến Lab là một ngày vui. ⚔️
+                <br>
+                Cùng nhau nỗ lực, gặt hái thành công.
+            </p>
+        """, unsafe_allow_html=True)
+        
         with st.form("login"):
             u = st.text_input("Tài khoản sinh viên")
             p = st.text_input("Mật khẩu", type="password")
@@ -215,6 +231,16 @@ else:
     # ---------------- NỘI DUNG CHÍNH (MAIN UI) ----------------
     auto_return_devices()
     
+    # Tiêu đề chính và slogan (đã cập nhật)
+    st.markdown("<h1 style='text-align: center;'>🔬 Lab 109</h1>", unsafe_allow_html=True)
+    st.markdown("""
+        <p style='text-align: center; color: #666; font-size: 1.1em;'>
+            Mỗi ngày đến Lab là một ngày vui. ⚔️
+            <br>
+            Cùng nhau nỗ lực, gặt hái thành công.
+        </p>
+    """, unsafe_allow_html=True)
+
     # Báo động toàn cầu (Hiển thị đầu trang)
     if "CẦN TRỢ GIÚP" in df_tk['TrangThai'].values:
         nguoi_can_giup = df_tk[df_tk['TrangThai'] == 'CẦN TRỢ GIÚP']['HoTen'].tolist()
