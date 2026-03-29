@@ -142,10 +142,10 @@ else:
     
     today = get_now().date()
     days_7 = [(today + timedelta(days=i)).strftime("%d/%m/%Y") for i in range(7)]
-
     time_options = [f"{h:02d}:{m:02d}" for h in range(24) for m in (0, 15, 30, 45)]
 
-    tab1, tab2, tab3, tab4 = st.tabs(["📊 Trạng thái Lab", "📅 Đăng ký & Biểu đồ lịch", "🕒 Lịch sử", "🔄 Trả thiết bị"])
+    # CẬP NHẬT THÊM TAB 3: LỊCH CỦA TÔI
+    tab1, tab2, tab3, tab4, tab5 = st.tabs(["📊 Trạng thái Lab", "📅 Timeline & Đăng ký", "📋 Lịch của tôi", "🕒 Lịch sử", "🔄 Trả thiết bị"])
 
     # --- TAB 1: TRẠNG THÁI HIỂN THỊ CẢ GHI CHÚ ---
     with tab1:
@@ -157,18 +157,16 @@ else:
                 return [''] * len(row)
             st.dataframe(df_tb.style.apply(highlight_status, axis=1), use_container_width=True, hide_index=True)
 
-    # --- TAB 2: ĐĂNG KÝ VỚI 1 NÚT DUY NHẤT & BIỂU ĐỒ LỊCH TĨNH ---
+    # --- TAB 2: ĐĂNG KÝ & BIỂU ĐỒ LỊCH TĨNH ---
     with tab2:
         st.subheader("📅 Kiểm tra và Đăng ký thiết bị")
         c_filter, _ = st.columns([1, 2])
         with c_filter:
             view_mode = st.selectbox("🔍 Chọn thiết bị để thao tác:", all_devices if all_devices else ["Chưa có dữ liệu"])
         
-        # THẺ TRẠNG THÁI
         if not df_tb.empty and view_mode in df_tb['Tên'].values:
             current_status = df_tb[df_tb['Tên'] == view_mode].iloc[0]['Trạng thái']
             current_user = df_tb[df_tb['Tên'] == view_mode].iloc[0].get('Người sử dụng', '')
-            
             note_col_name = "Ghi chú" if "Ghi chú" in df_tb.columns else None
             current_note = df_tb[df_tb['Tên'] == view_mode].iloc[0].get(note_col_name, '') if note_col_name else ''
             note_display = f"<br><span style='color: #666; font-size: 0.95em;'>📝 Tình trạng gần nhất: <i>{current_note}</i></span>" if current_note else ""
@@ -180,7 +178,6 @@ else:
 
         st.write("") 
 
-        # VẼ BIỂU ĐỒ LỊCH (STATIC GANTT CHART)
         with st.expander(f"👉 Mở Biểu đồ sử dụng của [{view_mode}]", expanded=True):
             st.info("💡 Biểu đồ hiển thị tĩnh tỷ lệ thời gian. Khối màu Xanh là lịch của bạn, khối Đỏ là lịch của người khác.")
             
@@ -196,8 +193,6 @@ else:
             
             for d in days_7:
                 html_timeline += f"<div style='display: flex; align-items: center; margin-bottom: 10px; min-width: 700px;'><div style='width: 70px; font-size: 13px; font-weight: bold; color: #444;'>{d[:5]}</div><div style='flex-grow: 1; position: relative; height: 36px; background-color: #e9ecef; border-radius: 4px; border: 1px solid #ddd;'>"
-                
-                # Gridlines
                 for h in range(2, 24, 2):
                     html_timeline += f"<div style='position: absolute; left: {(h/24)*100}%; width: 1px; height: 100%; background-color: #cfd4da; z-index: 1;'></div>"
                 
@@ -218,9 +213,7 @@ else:
                                 width_pct = ((end_min - start_min) / (24 * 60)) * 100
                                 user = r['Người sử dụng']
                                 is_me = user == st.session_state.get('ho_ten', '')
-                                color = "#1a73e8" if is_me else "#ea4335" # Xanh: Mình, Đỏ: Người khác
-                                
-                                # Văn bản hiển thị tĩnh
+                                color = "#1a73e8" if is_me else "#ea4335" 
                                 display_text = f"{s_str}-{e_str} ({user})"
                                 
                                 block_html = f"<div style='position: absolute; left: {left_pct}%; width: {width_pct}%; height: 100%; background-color: {color}; border-radius: 4px; color: white; font-size: 11px; display: flex; align-items: center; justify-content: center; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; box-shadow: 0 1px 3px rgba(0,0,0,0.3); z-index: 2;'><span style='padding: 0 4px;'>{display_text}</span></div>"
@@ -231,8 +224,6 @@ else:
             st.markdown(html_timeline, unsafe_allow_html=True)
             
         st.markdown("---")
-        
-        # FORM ĐĂNG KÝ
         st.markdown(f"### 📝 Thời gian sử dụng thiết bị: **{view_mode}**")
         with st.form("smart_booking"):
             c1, c2, c3, c4 = st.columns([1.5, 1, 1, 2])
@@ -292,7 +283,7 @@ else:
                         sheet_thietbi.update_cell(cell.row, 3, "Đang mượn")
                         sheet_thietbi.update_cell(cell.row, 4, st.session_state['ho_ten'])
                         sheet_lichsu.append_row([get_now().strftime("%d/%m/%Y %H:%M:%S"), st.session_state['ho_ten'], f"Sử dụng trực tiếp ({ca_lam_viec_str})", view_mode, note])
-                        st.success(f"✅ Đã kích hoạt sử dụng {view_mode}. Máy sẽ tự động thu hồi lúc {t_end_str}.")
+                        st.success(f"✅ Đã kích hoạt mượn ngay {view_mode}. Máy sẽ tự động thu hồi lúc {t_end_str}.")
                     else:
                         sheet_lichsu.append_row([get_now().strftime("%d/%m/%Y %H:%M:%S"), st.session_state['ho_ten'], f"Đặt lịch ({ca_lam_viec_str})", view_mode, note])
                         st.success(f"✅ Đã chốt lịch sử dụng {view_mode} thành công!")
@@ -300,14 +291,59 @@ else:
                     load_data.clear() 
                     st.rerun()
 
-    # --- TAB 3: LỊCH SỬ ---
+    # --- TAB 3: LỊCH CỦA TÔI & HỦY LỊCH (TÍNH NĂNG MỚI) ---
     with tab3:
+        st.subheader("📋 Các lịch bạn đã đăng ký")
+        st.info("💡 Bạn có thể xem lại toàn bộ các thiết bị mình đã đặt và chủ động Hủy lịch để nhường máy cho người khác nếu không dùng đến.")
+        
+        my_bookings = df_lich_view[df_lich_view['Người sử dụng'] == st.session_state['ho_ten']]
+        
+        if my_bookings.empty:
+            st.success("Bạn hiện chưa đăng ký sử dụng thiết bị nào.")
+        else:
+            # Hiển thị bảng lịch cá nhân
+            st.dataframe(my_bookings[['Ngày', 'Ca làm việc', 'Thiết bị', 'Mục đích']], use_container_width=True, hide_index=True)
+            
+            st.markdown("---")
+            st.markdown("### 🗑️ Xóa / Hủy lịch")
+            with st.form("cancel_booking"):
+                # Tạo list cho ô Dropdown để người dùng chọn lịch muốn hủy
+                cancel_options = []
+                for _, r in my_bookings.iterrows():
+                    cancel_options.append(f"[{r['Ngày']}] {r['Thiết bị']} | {r['Ca làm việc']}")
+                
+                selected_cancel = st.selectbox("Chọn lịch bạn muốn hủy bỏ:", cancel_options)
+                
+                if st.form_submit_button("Xác nhận Hủy lịch"):
+                    # Tách chuỗi để dò lại đúng dòng trong Google Sheets
+                    day = selected_cancel.split("] ")[0].replace("[", "")
+                    dev_and_ca = selected_cancel.split("] ")[1]
+                    dev = dev_and_ca.split(" | ")[0]
+                    ca = dev_and_ca.split(" | ")[1]
+                    
+                    records = sheet_lichtuan.get_all_records()
+                    row_to_delete = None
+                    
+                    for i, r in enumerate(records):
+                        if str(r['Ngày']) == day and str(r['Thiết bị']) == dev and str(r['Ca làm việc']) == ca and str(r['Người sử dụng']) == st.session_state['ho_ten']:
+                            row_to_delete = i + 2 # Header là dòng 1, data bắt đầu từ dòng 2
+                            break
+                            
+                    if row_to_delete:
+                        sheet_lichtuan.delete_rows(row_to_delete) # Xóa dòng trong sheet LichTuan
+                        sheet_lichsu.append_row([get_now().strftime("%d/%m/%Y %H:%M:%S"), st.session_state['ho_ten'], f"Hủy lịch ({ca})", dev, "Người dùng tự hủy"])
+                        st.success(f"✅ Đã hủy thành công lịch {dev} ngày {day}. Biểu đồ đã được giải phóng!")
+                        load_data.clear()
+                        st.rerun()
+
+    # --- TAB 4: LỊCH SỬ ---
+    with tab4:
         st.subheader("Lịch sử hoạt động")
         df_h = load_data("LichSu")
         if not df_h.empty: st.dataframe(df_h.iloc[::-1], use_container_width=True, hide_index=True)
 
-    # --- TAB 4: TRẢ THIẾT BỊ SỚM & CẮT LỊCH ---
-    with tab4:
+    # --- TAB 5: TRẢ THIẾT BỊ SỚM & CẮT LỊCH ---
+    with tab5:
         st.subheader("🔄 Hoàn trả & Ghi chú tình trạng thiết bị")
         if "Người sử dụng" in df_tb.columns:
             my_list = df_tb[df_tb["Người sử dụng"] == st.session_state['ho_ten']]['Tên'].tolist()
@@ -319,7 +355,6 @@ else:
                     return_note = st.text_input("📝 Ghi chú tình trạng (VD: Lò nung gia nhiệt ổn định, Lạch cạch...)")
                     
                     if st.form_submit_button("Xác nhận Trả"):
-                        # 1. Update bảng ThietBi
                         cell = sheet_thietbi.find(dev_ret)
                         sheet_thietbi.update_cell(cell.row, 3, "Sẵn sàng")
                         sheet_thietbi.update_cell(cell.row, 4, "")
@@ -330,7 +365,6 @@ else:
                             note_col_index = 5 
                         sheet_thietbi.update_cell(cell.row, note_col_index, return_note)
                         
-                        # 2. TÌM VÀ CẮT LỊCH TRONG LỊCH TUẦN ĐỂ NHẢ SLOT CHO NGƯỜI KHÁC
                         today_str = get_now().strftime("%d/%m/%Y")
                         curr_t = get_now().time()
                         curr_str = get_now().strftime("%H:%M")
@@ -346,17 +380,14 @@ else:
                                     s_str, e_str = ca.split(" - ")
                                     s_t = parse_time(s_str)
                                     e_t = parse_time(e_str)
-                                    
-                                    # Nếu đang trong giờ mượn, cắt ngắn kết thúc bằng giờ hiện tại
                                     if s_t and e_t and s_t <= curr_t <= e_t:
-                                        row_to_update = i + 2 # Header là dòng 1, index list bắt đầu từ 0
+                                        row_to_update = i + 2 
                                         new_ca = f"{s_str} - {curr_str}"
                                         break
                         
                         if row_to_update:
-                            sheet_lichtuan.update_cell(row_to_update, 2, new_ca) # Cột 2 là "Ca làm việc"
+                            sheet_lichtuan.update_cell(row_to_update, 2, new_ca) 
                         
-                        # 3. Ghi Lịch sử
                         sheet_lichsu.append_row([get_now().strftime("%d/%m/%Y %H:%M:%S"), st.session_state['ho_ten'], "Trả sớm & Giải phóng lịch", dev_ret, return_note])
                         
                         st.success(f"✅ Đã trả {dev_ret}. Lịch sử dụng đã được rút ngắn để giải phóng máy cho người khác!")
