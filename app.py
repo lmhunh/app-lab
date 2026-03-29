@@ -54,7 +54,7 @@ def load_data(sheet_name):
         return pd.DataFrame(sheets[sheet_name].get_all_records())
 
 # ==========================================
-# 2. ROBOT TỰ ĐỘNG THU HỒI
+# 2. ROBOT TỰ ĐỘNG THU HỒI (ĐÃ NÂNG CẤP LỌC QUÁ KHỨ)
 # ==========================================
 def auto_return_devices():
     try:
@@ -63,29 +63,32 @@ def auto_return_devices():
         if df_tb.empty or df_lich.empty: return
         
         now = get_now()
-        today_str = now.strftime("%d/%m/%Y")
-        
-        df_today = df_lich[df_lich['Ngày'] == today_str]
-        if df_today.empty: return
         has_changes = False
 
         for _, row in df_tb.iterrows():
             if row.get('Trạng thái') == 'Đang mượn':
                 device = row.get('Tên')
                 user = row.get('Người sử dụng', '')
-                user_bookings = df_today[(df_today['Thiết bị'] == device) & (df_today['Người sử dụng'] == user)]
+                # Quét TẤT CẢ các lịch của người này đối với thiết bị này (không chỉ hôm nay)
+                user_bookings = df_lich[(df_lich['Thiết bị'] == device) & (df_lich['Người sử dụng'] == user)]
                 
                 if not user_bookings.empty:
-                    latest_end = None
-                    for ca in user_bookings['Ca làm việc']:
+                    latest_end_dt = None
+                    for _, b_row in user_bookings.iterrows():
                         try:
-                            _, e_str = ca.split(" - ")
-                            e_time = parse_time(e_str)
-                            if latest_end is None or e_time > latest_end:
-                                latest_end = e_time
+                            b_date = datetime.strptime(str(b_row['Ngày']), "%d/%m/%Y").date()
+                            ca = str(b_row['Ca làm việc'])
+                            if " - " in ca:
+                                _, e_str = ca.split(" - ")
+                                e_time = parse_time(e_str)
+                                # Gộp ngày và giờ kết thúc thành 1 mốc thời gian hoàn chỉnh
+                                end_dt = datetime.combine(b_date, e_time, tzinfo=VN_TZ)
+                                if latest_end_dt is None or end_dt > latest_end_dt:
+                                    latest_end_dt = end_dt
                         except: pass
                     
-                    if latest_end and now.time() >= latest_end:
+                    # Nếu thời gian kết thúc của lịch cuối cùng đã ở trong quá khứ -> Tịch thu máy
+                    if latest_end_dt and now >= latest_end_dt:
                         cell = sheet_thietbi.find(device)
                         sheet_thietbi.update_cell(cell.row, 3, "Sẵn sàng")
                         sheet_thietbi.update_cell(cell.row, 4, "")
@@ -144,7 +147,6 @@ else:
     days_7 = [(today + timedelta(days=i)).strftime("%d/%m/%Y") for i in range(7)]
     time_options = [f"{h:02d}:{m:02d}" for h in range(24) for m in (0, 15, 30, 45)]
 
-    # CẬP NHẬT THÊM TAB 3: LỊCH CỦA TÔI
     tab1, tab2, tab3, tab4, tab5 = st.tabs(["📊 Trạng thái Lab", "📅 Timeline & Đăng ký", "📋 Lịch của tôi", "🕒 Lịch sử", "🔄 Trả thiết bị"])
 
     # --- TAB 1: TRẠNG THÁI HIỂN THỊ CẢ GHI CHÚ ---
@@ -228,6 +230,7 @@ else:
         with st.form("smart_booking"):
             c1, c2, c3, c4 = st.columns([1.5, 1, 1, 2])
             with c1: 
+                # Không thể chọn ngày quá khứ
                 d_pick = st.date_input("🗓️ Chọn ngày", min_value=today)
             with c2: 
                 now_minute = get_now().minute
@@ -291,50 +294,67 @@ else:
                     load_data.clear() 
                     st.rerun()
 
-    # --- TAB 3: LỊCH CỦA TÔI & HỦY LỊCH (TÍNH NĂNG MỚI) ---
+    # --- TAB 3: LỊCH CỦA TÔI (ĐÃ CẬP NHẬT LỌC QUÁ KHỨ) ---
     with tab3:
-        st.subheader("📋 Các lịch bạn đã đăng ký")
-        st.info("💡 Bạn có thể xem lại toàn bộ các thiết bị mình đã đặt và chủ động Hủy lịch để nhường máy cho người khác nếu không dùng đến.")
+        st.subheader("📋 Các lịch bạn đã đăng ký (Từ hôm nay)")
+        st.info("💡 Hệ thống chỉ hiển thị các lịch ở hiện tại và tương lai. Những lịch đã nằm trong quá khứ không thể bị hủy. Nếu máy đang chạy, vui lòng qua Tab Trả thiết bị để nhả máy sớm.")
         
-        my_bookings = df_lich_view[df_lich_view['Người sử dụng'] == st.session_state['ho_ten']]
+        my_raw_bookings = df_lich_view[df_lich_view['Người sử dụng'] == st.session_state['ho_ten']]
         
-        if my_bookings.empty:
-            st.success("Bạn hiện chưa đăng ký sử dụng thiết bị nào.")
+        valid_bookings = []
+        cancel_options = []
+        
+        if not my_raw_bookings.empty:
+            for _, r in my_raw_bookings.iterrows():
+                try:
+                    b_date = datetime.strptime(str(r['Ngày']), "%d/%m/%Y").date()
+                    # Bỏ qua ngày quá khứ
+                    if b_date >= today:
+                        valid_bookings.append(r)
+                        
+                        ca = str(r['Ca làm việc'])
+                        if " - " in ca:
+                            s_str = ca.split(" - ")[0]
+                            s_time = parse_time(s_str)
+                            start_dt = datetime.combine(b_date, s_time, tzinfo=VN_TZ)
+                            
+                            # CHỈ ĐƯỢC CHỌN HỦY NẾU LỊCH ĐÓ CHƯA BẮT ĐẦU (Nằm trong tương lai)
+                            if start_dt > get_now():
+                                cancel_options.append(f"[{r['Ngày']}] {r['Thiết bị']} | {ca}")
+                except: pass
+        
+        if not valid_bookings:
+            st.success("Bạn hiện chưa đăng ký thiết bị nào trong hôm nay và tương lai.")
         else:
-            # Hiển thị bảng lịch cá nhân
-            st.dataframe(my_bookings[['Ngày', 'Ca làm việc', 'Thiết bị', 'Mục đích']], use_container_width=True, hide_index=True)
+            st.dataframe(pd.DataFrame(valid_bookings)[['Ngày', 'Ca làm việc', 'Thiết bị', 'Mục đích']], use_container_width=True, hide_index=True)
             
             st.markdown("---")
-            st.markdown("### 🗑️ Xóa / Hủy lịch")
-            with st.form("cancel_booking"):
-                # Tạo list cho ô Dropdown để người dùng chọn lịch muốn hủy
-                cancel_options = []
-                for _, r in my_bookings.iterrows():
-                    cancel_options.append(f"[{r['Ngày']}] {r['Thiết bị']} | {r['Ca làm việc']}")
-                
-                selected_cancel = st.selectbox("Chọn lịch bạn muốn hủy bỏ:", cancel_options)
-                
-                if st.form_submit_button("Xác nhận Hủy lịch"):
-                    # Tách chuỗi để dò lại đúng dòng trong Google Sheets
-                    day = selected_cancel.split("] ")[0].replace("[", "")
-                    dev_and_ca = selected_cancel.split("] ")[1]
-                    dev = dev_and_ca.split(" | ")[0]
-                    ca = dev_and_ca.split(" | ")[1]
-                    
-                    records = sheet_lichtuan.get_all_records()
-                    row_to_delete = None
-                    
-                    for i, r in enumerate(records):
-                        if str(r['Ngày']) == day and str(r['Thiết bị']) == dev and str(r['Ca làm việc']) == ca and str(r['Người sử dụng']) == st.session_state['ho_ten']:
-                            row_to_delete = i + 2 # Header là dòng 1, data bắt đầu từ dòng 2
-                            break
-                            
-                    if row_to_delete:
-                        sheet_lichtuan.delete_rows(row_to_delete) # Xóa dòng trong sheet LichTuan
-                        sheet_lichsu.append_row([get_now().strftime("%d/%m/%Y %H:%M:%S"), st.session_state['ho_ten'], f"Hủy lịch ({ca})", dev, "Người dùng tự hủy"])
-                        st.success(f"✅ Đã hủy thành công lịch {dev} ngày {day}. Biểu đồ đã được giải phóng!")
-                        load_data.clear()
-                        st.rerun()
+            st.markdown("### 🗑️ Hủy lịch đặt trước")
+            if cancel_options:
+                with st.form("cancel_booking"):
+                    selected_cancel = st.selectbox("Chọn lịch bạn muốn hủy bỏ:", cancel_options)
+                    if st.form_submit_button("Xác nhận Hủy lịch"):
+                        day = selected_cancel.split("] ")[0].replace("[", "")
+                        dev_and_ca = selected_cancel.split("] ")[1]
+                        dev = dev_and_ca.split(" | ")[0]
+                        ca = dev_and_ca.split(" | ")[1]
+                        
+                        records = sheet_lichtuan.get_all_records()
+                        row_to_delete = None
+                        
+                        for i, r in enumerate(records):
+                            if str(r['Ngày']) == day and str(r['Thiết bị']) == dev and str(r['Ca làm việc']) == ca and str(r['Người sử dụng']) == st.session_state['ho_ten']:
+                                row_to_delete = i + 2
+                                break
+                                
+                        if row_to_delete:
+                            sheet_lichtuan.delete_rows(row_to_delete)
+                            sheet_lichsu.append_row([get_now().strftime("%d/%m/%Y %H:%M:%S"), st.session_state['ho_ten'], f"Hủy lịch ({ca})", dev, "Người dùng tự hủy"])
+                            st.success(f"✅ Đã hủy thành công lịch {dev} ngày {day}. Biểu đồ đã được giải phóng!")
+                            load_data.clear()
+                            st.rerun()
+            else:
+                st.warning("Bạn không có lịch nào CHƯA BẮT ĐẦU để hủy. Các lịch hiện đang chạy, vui lòng dùng chức năng 'Trả thiết bị' nếu muốn nhả máy sớm.")
 
     # --- TAB 4: LỊCH SỬ ---
     with tab4:
@@ -342,9 +362,10 @@ else:
         df_h = load_data("LichSu")
         if not df_h.empty: st.dataframe(df_h.iloc[::-1], use_container_width=True, hide_index=True)
 
-    # --- TAB 5: TRẢ THIẾT BỊ SỚM & CẮT LỊCH ---
+    # --- TAB 5: TRẢ THIẾT BỊ SỚM ---
     with tab5:
         st.subheader("🔄 Hoàn trả & Ghi chú tình trạng thiết bị")
+        # Nhờ tính năng Auto-Return được nâng cấp, "my_list" ở đây tự động chỉ chứa các máy thực sự đang được chạy ở thời điểm HIỆN TẠI.
         if "Người sử dụng" in df_tb.columns:
             my_list = df_tb[df_tb["Người sử dụng"] == st.session_state['ho_ten']]['Tên'].tolist()
             if not my_list: 
