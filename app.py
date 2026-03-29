@@ -8,7 +8,7 @@ import time
 # 1. CẤU HÌNH & KẾT NỐI (GMT+7)
 # ==========================================
 # Sửa tiêu đề trang hiển thị trên tab trình duyệt
-st.set_page_config(page_title="Lab 109 - Quản lý Lab", page_icon="🔬", layout="wide", initial_sidebar_state="expanded")
+st.set_page_config(page_title="Lab 109", page_icon="🔬", layout="wide", initial_sidebar_state="expanded")
 
 VN_TZ = timezone(timedelta(hours=7))
 
@@ -22,7 +22,7 @@ st.markdown("""
     /* Đổi màu tiêu đề chính */
     h1 {
         text-align: center;
-        color: #ff69b4; /* Màu hồng */
+        color: #EF2B7C; /* Màu hồng */
     }
     </style>
 """, unsafe_allow_html=True)
@@ -121,9 +121,9 @@ if not st.session_state['logged_in']:
         # Cập nhật Slogan mới, viết thành 2 dòng và thêm icon cờ đan nhau
         st.markdown("""
             <p style='text-align: center; color: #666; font-size: 1.1em;'>
-                Mỗi ngày đến Lab là một ngày vui. ⚔️
+                Mỗi ngày đến Lab là một ngày vui 🐽
                 <br>
-                Cùng nhau nỗ lực, gặt hái thành công.
+                Sẽ vui hơn nếu chúng ta làm việc chăm chỉ
             </p>
         """, unsafe_allow_html=True)
         
