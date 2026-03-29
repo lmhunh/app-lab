@@ -64,28 +64,30 @@ def auto_return_devices():
         
         now = get_now()
         today_str = now.strftime("%d/%m/%Y")
-        
-        df_today = df_lich[df_lich['Ngày'] == today_str]
-        if df_today.empty: return
         has_changes = False
 
         for _, row in df_tb.iterrows():
             if row.get('Trạng thái') == 'Đang mượn':
                 device = row.get('Tên')
                 user = row.get('Người sử dụng', '')
-                user_bookings = df_today[(df_today['Thiết bị'] == device) & (df_today['Người sử dụng'] == user)]
+                user_bookings = df_lich[(df_lich['Thiết bị'] == device) & (df_lich['Người sử dụng'] == user)]
                 
                 if not user_bookings.empty:
-                    latest_end = None
-                    for ca in user_bookings['Ca làm việc']:
+                    latest_end_dt = None
+                    for _, b_row in user_bookings.iterrows():
                         try:
-                            _, e_str = ca.split(" - ")
-                            e_time = parse_time(e_str)
-                            if latest_end is None or e_time > latest_end:
-                                latest_end = e_time
+                            b_date = datetime.strptime(str(b_row['Ngày']), "%d/%m/%Y").date()
+                            ca = str(b_row['Ca làm việc'])
+                            if " - " in ca:
+                                _, e_str = ca.split(" - ")
+                                e_time = parse_time(e_str)
+                                end_dt = datetime.combine(b_date, e_time, tzinfo=VN_TZ)
+                                if latest_end_dt is None or end_dt > latest_end_dt:
+                                    latest_end_dt = end_dt
                         except: pass
                     
-                    if latest_end and now.time() >= latest_end:
+                    # Tự động trả về Sẵn sàng khi quá giờ mượn
+                    if latest_end_dt and now >= latest_end_dt:
                         cell = sheet_thietbi.find(device)
                         sheet_thietbi.update_cell(cell.row, 3, "Sẵn sàng")
                         sheet_thietbi.update_cell(cell.row, 4, "")
@@ -100,7 +102,7 @@ def auto_return_devices():
 # 3. LOGIC ĐĂNG NHẬP
 # ==========================================
 if 'logged_in' not in st.session_state:
-    st.session_state.update({'logged_in': False, 'ho_ten': ""})
+    st.session_state.update({'logged_in': False, 'ho_ten': "", 'tai_khoan': ""})
 
 if not st.session_state['logged_in']:
     st.title("🔐 Đăng nhập Hệ thống Lab")
@@ -119,23 +121,15 @@ if not st.session_state['logged_in']:
 # 4. GIAO DIỆN CHÍNH
 # ==========================================
 else:
-    # Tải dữ liệu tổng quan trước để dùng cho cả Sidebar và Main UI
     df_tk = load_data("TaiKhoan")
-    df_tb = load_data("ThietBi")
-    df_lich_view = load_data("LichTuan")
-    all_devices = df_tb['Tên'].tolist() if not df_tb.empty else []
     
-    today = get_now().date()
-    days_7 = [(today + timedelta(days=i)).strftime("%d/%m/%Y") for i in range(7)]
-    time_options = [f"{h:02d}:{m:02d}" for h in range(24) for m in (0, 15, 30, 45)]
-
     if not df_tk.empty and "TrangThai" not in df_tk.columns:
         num_cols = len(df_tk.columns)
         sheet_taikhoan.update_cell(1, num_cols + 1, "TrangThai")
         load_data.clear()
         df_tk = load_data("TaiKhoan")
         
-    # ---------------- SIDEBAR: TRẠNG THÁI CÁ NHÂN & LỊCH CỦA TÔI ----------------
+    # ---------------- SIDEBAR: QUẢN LÝ TRẠNG THÁI CÁ NHÂN ----------------
     with st.sidebar:
         st.markdown(f"### 👤 {st.session_state['ho_ten']}")
         st.markdown("---")
@@ -146,7 +140,7 @@ else:
             sheet_taikhoan.update_cell(cell.row, col_idx, new_status)
             
             if new_status == "🟢 Ở Lab":
-                sheet_lichsu.append_row([get_now().strftime("%d/%m/%Y %H:%M:%S"), st.session_state['ho_ten'], "📍 Check-in", "", ""])
+                sheet_lichsu.append_row([get_now().strftime("%d/%m/%Y %H:%M:%S"), st.session_state['ho_ten'], "📍 Check-in Lab", "", ""])
             elif new_status == "⚪ Đã về":
                 sheet_lichsu.append_row([get_now().strftime("%d/%m/%Y %H:%M:%S"), st.session_state['ho_ten'], "🏃 Check-out", "", ""])
                 
@@ -178,15 +172,15 @@ else:
             
         st.markdown("---")
         
-        # --- TÍCH HỢP: LỊCH CỦA TÔI VÀO SIDEBAR ---
+        df_lich_view_sb = load_data("LichTuan")
         with st.expander("📋 Xem & Hủy lịch của tôi", expanded=False):
-            my_raw_bookings = df_lich_view[df_lich_view['Người sử dụng'] == st.session_state['ho_ten']]
+            my_raw_bookings = df_lich_view_sb[df_lich_view_sb['Người sử dụng'] == st.session_state['ho_ten']]
             valid_bookings, cancel_options = [], []
             if not my_raw_bookings.empty:
                 for _, r in my_raw_bookings.iterrows():
                     try:
                         b_date = datetime.strptime(str(r['Ngày']), "%d/%m/%Y").date()
-                        if b_date >= today:
+                        if b_date >= get_now().date():
                             valid_bookings.append(r)
                             ca = str(r['Ca làm việc'])
                             if " - " in ca:
@@ -234,26 +228,47 @@ else:
         """, unsafe_allow_html=True)
 
     auto_return_devices()
+    
+    df_tb = load_data("ThietBi")
+    df_lich_view = load_data("LichTuan")
+    all_devices = df_tb['Tên'].tolist() if not df_tb.empty else []
+    
+    today = get_now().date()
+    days_7 = [(today + timedelta(days=i)).strftime("%d/%m/%Y") for i in range(7)]
+    time_options = [f"{h:02d}:{m:02d}" for h in range(24) for m in (0, 15, 30, 45)]
 
-    # CẤU TRÚC 4 TABS GỌN GÀNG
-    tab1, tab2, tab3, tab4 = st.tabs(["📊 Trạng thái & Đăng ký", "👥 Thành viên & Xếp hạng", "🕒 Lịch sử", "🔄 Trả thiết bị"])
-
-    # ================= TAB 1: BẢNG TRẠNG THÁI VÀ ĐĂNG KÝ =================
-    with tab1:
-        st.subheader("1. Tình trạng thiết bị hiện tại")
-        if not df_tb.empty:
-            def highlight_status(row):
-                if row['Trạng thái'] == 'Đang mượn': return ['background-color: #fdecea; color: #000000; font-weight: bold;'] * len(row)
-                return [''] * len(row)
-            st.dataframe(df_tb.style.apply(highlight_status, axis=1), use_container_width=True, hide_index=True)
-            
-        st.markdown("---")
+    # Hàm định dạng chữ trong Dropdown chọn thiết bị
+    def format_device_option(dev_name):
+        if df_tb.empty or dev_name not in df_tb['Tên'].values:
+            return dev_name
+        row = df_tb[df_tb['Tên'] == dev_name].iloc[0]
+        status = row.get('Trạng thái', 'Sẵn sàng')
+        user = row.get('Người sử dụng', '')
         
-        st.subheader("2. Đăng ký & Biểu đồ Timeline")
+        note_col = "Ghi chú" if "Ghi chú" in df_tb.columns else None
+        note = row.get(note_col, '') if note_col else ''
+        note_str = f" | 📝 {note}" if note else ""
+        
+        if status == 'Sẵn sàng':
+            return f"🟢 {dev_name} (Sẵn sàng){note_str}"
+        else:
+            return f"🔴 {dev_name} (Đang bận: {user}){note_str}"
+
+    tab1, tab2, tab3, tab4 = st.tabs(["📅 Đăng ký thiết bị", "👥 Thành viên & Xếp hạng", "🕒 Lịch sử", "🔄 Trả thiết bị"])
+
+    # ================= TAB 1: ĐĂNG KÝ (Đã xóa bảng thiết bị) =================
+    with tab1:
+        st.subheader("Đăng ký & Biểu đồ Timeline")
         c_filter, _ = st.columns([1, 2])
         with c_filter:
-            view_mode = st.selectbox("🔍 Chọn thiết bị để thao tác:", all_devices if all_devices else ["Chưa có dữ liệu"])
+            # Tích hợp thông tin vào ô dropdown
+            view_mode = st.selectbox(
+                "🔍 Chọn thiết bị để thao tác:", 
+                all_devices if all_devices else ["Chưa có dữ liệu"],
+                format_func=format_device_option if all_devices else lambda x: x
+            )
         
+        # Thẻ màu nhắc nhở nhanh cho thiết bị đang chọn (Giữ lại để nhấn mạnh)
         if not df_tb.empty and view_mode in df_tb['Tên'].values:
             current_status = df_tb[df_tb['Tên'] == view_mode].iloc[0]['Trạng thái']
             current_user = df_tb[df_tb['Tên'] == view_mode].iloc[0].get('Người sử dụng', '')
@@ -323,7 +338,7 @@ else:
             with c4: 
                 note = st.text_input("Mục đích (VD: Đo phổ ZnO)")
             
-            btn_submit = st.form_submit_button("🔥 Xác nhận Đăng ký")
+            btn_submit = st.form_submit_button("🔥 Xác nhận")
             
             if btn_submit:
                 t_start = parse_time(t_start_str)
@@ -389,7 +404,6 @@ else:
 
         st.markdown("---")
         
-        # BẢNG XẾP HẠNG GAMIFICATION
         st.subheader("🏆 Bảng xếp hạng Thời gian (Tuần này)")
         st.info("💡 Bảng xếp hạng dựa trên tổng số giờ thực tế có mặt tại Lab. Nhớ bấm '🟢 Ở Lab' khi đến và '⚪ Về' khi ra khỏi Lab để hệ thống chấm công nhé!")
         
