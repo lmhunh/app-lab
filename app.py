@@ -76,20 +76,16 @@ def auto_return_devices():
                 user_bookings = df_today[(df_today['Thiết bị'] == device) & (df_today['Người sử dụng'] == user)]
                 
                 if not user_bookings.empty:
-                    latest_end_dt = None
-                    for _, b_row in user_bookings.iterrows():
+                    latest_end = None
+                    for ca in user_bookings['Ca làm việc']:
                         try:
-                            b_date = datetime.strptime(str(b_row['Ngày']), "%d/%m/%Y").date()
-                            ca = str(b_row['Ca làm việc'])
-                            if " - " in ca:
-                                _, e_str = ca.split(" - ")
-                                e_time = parse_time(e_str)
-                                end_dt = datetime.combine(b_date, e_time, tzinfo=VN_TZ)
-                                if latest_end_dt is None or end_dt > latest_end_dt:
-                                    latest_end_dt = end_dt
+                            _, e_str = ca.split(" - ")
+                            e_time = parse_time(e_str)
+                            if latest_end is None or e_time > latest_end:
+                                latest_end = e_time
                         except: pass
                     
-                    if latest_end_dt and now >= latest_end_dt:
+                    if latest_end and now.time() >= latest_end:
                         cell = sheet_thietbi.find(device)
                         sheet_thietbi.update_cell(cell.row, 3, "Sẵn sàng")
                         sheet_thietbi.update_cell(cell.row, 4, "")
@@ -125,52 +121,48 @@ if not st.session_state['logged_in']:
 else:
     df_tk = load_data("TaiKhoan")
     
-    # ---------------- SIDEBAR: QUẢN LÝ TRẠNG THÁI CÁ NHÂN ----------------
+    # --- TỰ ĐỘNG TẠO CỘT 'TrangThai' NẾU CHƯA CÓ TRONG SHEETS ---
+    if not df_tk.empty and "TrangThai" not in df_tk.columns:
+        num_cols = len(df_tk.columns)
+        sheet_taikhoan.update_cell(1, num_cols + 1, "TrangThai")
+        load_data.clear()
+        df_tk = load_data("TaiKhoan")
+        
+    # ---------------- SIDEBAR (Menu bên trái) ----------------
     with st.sidebar:
         st.markdown(f"### 👤 {st.session_state['ho_ten']}")
         st.markdown("---")
         
-        if "TrangThai" in df_tk.columns:
-            my_status_arr = df_tk[df_tk['TaiKhoan'].astype(str) == str(st.session_state['tai_khoan'])]['TrangThai'].values
-            current_my_status = my_status_arr[0] if len(my_status_arr) > 0 and my_status_arr[0] != "" else "⚪ Đã về"
-            
-            # Nếu đang trong tình trạng báo động
-            if current_my_status == "CẦN TRỢ GIÚP":
-                st.markdown("<div style='background-color: #ff4b4b; color: white; padding: 10px; border-radius: 5px; text-align: center; font-weight: bold; margin-bottom: 10px; box-shadow: 0 0 10px #ff4b4b;'>🚨 BẠN ĐANG PHÁT TÍN HIỆU CẤP CỨU!</div>", unsafe_allow_html=True)
-                if st.button("✅ Đã an toàn (Hủy báo động)", use_container_width=True):
-                    cell = sheet_taikhoan.find(str(st.session_state['tai_khoan']))
-                    col_idx = df_tk.columns.get_loc("TrangThai") + 1
-                    sheet_taikhoan.update_cell(cell.row, col_idx, "🟢 Ở Lab")
-                    load_data.clear()
-                    st.rerun()
-            else:
-                # Cập nhật trạng thái cá nhân (Check-in / Check-out)
-                st.write("**Chỉnh sửa trạng thái của bạn:**")
-                status_options = ["🟢 Ở Lab", "🟡 Đang bận", "⚪ Đã về"]
-                try: default_idx = status_options.index(current_my_status)
-                except: default_idx = 2
-                
-                new_status = st.selectbox("Tùy chọn", status_options, index=default_idx, label_visibility="collapsed")
-                
-                # Tự động đồng bộ lên Google Sheets ngay khi người dùng đổi selectbox
-                if new_status != current_my_status:
-                    cell = sheet_taikhoan.find(str(st.session_state['tai_khoan']))
-                    col_idx = df_tk.columns.get_loc("TrangThai") + 1
-                    sheet_taikhoan.update_cell(cell.row, col_idx, new_status)
-                    load_data.clear()
-                    st.rerun()
-                
-                st.markdown("---")
-                # Nút Khẩn Cấp luôn chực chờ
-                st.write("**Báo động toàn Lab:**")
-                if st.button("🆘 NÚT KHẨN CẤP", use_container_width=True, type="primary"):
-                    cell = sheet_taikhoan.find(str(st.session_state['tai_khoan']))
-                    col_idx = df_tk.columns.get_loc("TrangThai") + 1
-                    sheet_taikhoan.update_cell(cell.row, col_idx, "CẦN TRỢ GIÚP")
-                    load_data.clear()
-                    st.rerun()
+        # Hàm cập nhật trạng thái nhanh
+        def update_status(new_status):
+            cell = sheet_taikhoan.find(str(st.session_state['tai_khoan']))
+            col_idx = df_tk.columns.get_loc("TrangThai") + 1
+            sheet_taikhoan.update_cell(cell.row, col_idx, new_status)
+            load_data.clear()
+            st.rerun()
+
+        my_status_arr = df_tk[df_tk['TaiKhoan'].astype(str) == str(st.session_state['tai_khoan'])]['TrangThai'].values
+        current_my_status = my_status_arr[0] if len(my_status_arr) > 0 and my_status_arr[0] != "" else "⚪ Đã về"
+        
+        if current_my_status == "CẦN TRỢ GIÚP":
+            st.markdown("<div style='background-color: #ff4b4b; color: white; padding: 10px; border-radius: 5px; text-align: center; font-weight: bold; margin-bottom: 10px; box-shadow: 0 0 10px #ff4b4b;'>🚨 ĐANG BÁO ĐỘNG!</div>", unsafe_allow_html=True)
+            if st.button("✅ Đã an toàn (Tắt báo động)", use_container_width=True):
+                update_status("🟢 Ở Lab")
         else:
-            st.warning("⚠️ Admin hãy thêm cột 'TrangThai' vào sheet TaiKhoan để dùng tính năng Check-in & Khẩn Cấp.")
+            st.write("**Trạng thái của bạn:**")
+            c1, c2, c3 = st.columns(3)
+            with c1:
+                if st.button("🟢 Lab", use_container_width=True, help="Tôi đang ở Lab"): update_status("🟢 Ở Lab")
+            with c2:
+                if st.button("🟡 Bận", use_container_width=True, help="Tôi đang bận tay"): update_status("🟡 Đang bận")
+            with c3:
+                if st.button("⚪ Về", use_container_width=True, help="Tôi đã về"): update_status("⚪ Đã về")
+                
+            st.markdown(f"Đang hiển thị: **{current_my_status}**")
+            
+            st.markdown("---")
+            if st.button("🆘 NÚT KHẨN CẤP", use_container_width=True, type="primary"):
+                update_status("CẦN TRỢ GIÚP")
             
         st.markdown("---")
         if st.button("🚪 Đăng xuất", use_container_width=True):
@@ -180,8 +172,7 @@ else:
     # ---------------- NỘI DUNG CHÍNH ----------------
     st.title("📅 Hệ thống Quản lý Thiết bị Lab")
     
-    # Hiệu ứng nhấp nháy báo động TOÀN HỆ THỐNG
-    if "TrangThai" in df_tk.columns and "CẦN TRỢ GIÚP" in df_tk['TrangThai'].values:
+    if "CẦN TRỢ GIÚP" in df_tk['TrangThai'].values:
         nguoi_can_giup = df_tk[df_tk['TrangThai'] == 'CẦN TRỢ GIÚP']['HoTen'].tolist()
         st.markdown(f"""
         <div style='background-color: #ff0000; color: yellow; padding: 15px; border-radius: 8px; border: 3px solid yellow; text-align: center; margin-bottom: 20px; animation: blinker 1s linear infinite;'>
@@ -335,48 +326,45 @@ else:
         st.subheader("👥 Trạng thái Thành viên Lab")
         st.info("💡 Bảng theo dõi tình trạng an toàn và tiến độ làm việc của mọi người trong Lab.")
         
-        if "TrangThai" not in df_tk.columns:
-            st.warning("Vui lòng truy cập file Google Sheets, thêm cột 'TrangThai' vào trang tính 'TaiKhoan' để tính năng này hoạt động.")
-        else:
-            cols = st.columns(4) 
-            for idx, row in df_tk.iterrows():
-                mem_name = row['HoTen']
-                mem_status = row.get('TrangThai', '⚪ Đã về')
-                if not mem_status: mem_status = "⚪ Đã về"
-                
-                with cols[idx % 4]:
-                    if mem_status == "CẦN TRỢ GIÚP":
-                        st.markdown(f"""
-                        <div style='background-color: #ff4b4b; color: white; padding: 20px; border-radius: 10px; text-align: center; margin-bottom: 15px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); border: 2px solid darkred;'>
-                            <h1 style='margin: 0; font-size: 30px;'>🚨</h1>
-                            <h4 style='margin: 10px 0 5px 0; color: white;'>{mem_name}</h4>
-                            <p style='margin: 0; font-weight: bold;'>ĐANG GẶP NGUY HIỂM!</p>
-                        </div>
-                        """, unsafe_allow_html=True)
-                    elif "Ở Lab" in mem_status:
-                        st.markdown(f"""
-                        <div style='background-color: #d4edda; color: #155724; padding: 20px; border-radius: 10px; text-align: center; margin-bottom: 15px; border: 1px solid #c3e6cb;'>
-                            <h1 style='margin: 0; font-size: 30px;'>🟢</h1>
-                            <h4 style='margin: 10px 0 5px 0;'>{mem_name}</h4>
-                            <p style='margin: 0;'>{mem_status}</p>
-                        </div>
-                        """, unsafe_allow_html=True)
-                    elif "Đang bận" in mem_status:
-                        st.markdown(f"""
-                        <div style='background-color: #fff3cd; color: #856404; padding: 20px; border-radius: 10px; text-align: center; margin-bottom: 15px; border: 1px solid #ffeeba;'>
-                            <h1 style='margin: 0; font-size: 30px;'>🟡</h1>
-                            <h4 style='margin: 10px 0 5px 0;'>{mem_name}</h4>
-                            <p style='margin: 0;'>{mem_status}</p>
-                        </div>
-                        """, unsafe_allow_html=True)
-                    else:
-                        st.markdown(f"""
-                        <div style='background-color: #f8f9fa; color: #6c757d; padding: 20px; border-radius: 10px; text-align: center; margin-bottom: 15px; border: 1px solid #dee2e6;'>
-                            <h1 style='margin: 0; font-size: 30px;'>⚪</h1>
-                            <h4 style='margin: 10px 0 5px 0;'>{mem_name}</h4>
-                            <p style='margin: 0;'>{mem_status}</p>
-                        </div>
-                        """, unsafe_allow_html=True)
+        cols = st.columns(4) 
+        for idx, row in df_tk.iterrows():
+            mem_name = row['HoTen']
+            mem_status = row.get('TrangThai', '⚪ Đã về')
+            if not mem_status: mem_status = "⚪ Đã về"
+            
+            with cols[idx % 4]:
+                if mem_status == "CẦN TRỢ GIÚP":
+                    st.markdown(f"""
+                    <div style='background-color: #ff4b4b; color: white; padding: 20px; border-radius: 10px; text-align: center; margin-bottom: 15px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); border: 2px solid darkred;'>
+                        <h1 style='margin: 0; font-size: 30px;'>🚨</h1>
+                        <h4 style='margin: 10px 0 5px 0; color: white;'>{mem_name}</h4>
+                        <p style='margin: 0; font-weight: bold;'>ĐANG GẶP NGUY HIỂM!</p>
+                    </div>
+                    """, unsafe_allow_html=True)
+                elif "Ở Lab" in mem_status:
+                    st.markdown(f"""
+                    <div style='background-color: #d4edda; color: #155724; padding: 20px; border-radius: 10px; text-align: center; margin-bottom: 15px; border: 1px solid #c3e6cb;'>
+                        <h1 style='margin: 0; font-size: 30px;'>🟢</h1>
+                        <h4 style='margin: 10px 0 5px 0;'>{mem_name}</h4>
+                        <p style='margin: 0;'>{mem_status}</p>
+                    </div>
+                    """, unsafe_allow_html=True)
+                elif "Đang bận" in mem_status:
+                    st.markdown(f"""
+                    <div style='background-color: #fff3cd; color: #856404; padding: 20px; border-radius: 10px; text-align: center; margin-bottom: 15px; border: 1px solid #ffeeba;'>
+                        <h1 style='margin: 0; font-size: 30px;'>🟡</h1>
+                        <h4 style='margin: 10px 0 5px 0;'>{mem_name}</h4>
+                        <p style='margin: 0;'>{mem_status}</p>
+                    </div>
+                    """, unsafe_allow_html=True)
+                else:
+                    st.markdown(f"""
+                    <div style='background-color: #f8f9fa; color: #6c757d; padding: 20px; border-radius: 10px; text-align: center; margin-bottom: 15px; border: 1px solid #dee2e6;'>
+                        <h1 style='margin: 0; font-size: 30px;'>⚪</h1>
+                        <h4 style='margin: 10px 0 5px 0;'>{mem_name}</h4>
+                        <p style='margin: 0;'>{mem_status}</p>
+                    </div>
+                    """, unsafe_allow_html=True)
 
     # --- TAB 3: LỊCH CỦA TÔI ---
     with tab3:
