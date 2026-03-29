@@ -64,30 +64,28 @@ def auto_return_devices():
         
         now = get_now()
         today_str = now.strftime("%d/%m/%Y")
+        
+        df_today = df_lich[df_lich['Ngày'] == today_str]
+        if df_today.empty: return
         has_changes = False
 
         for _, row in df_tb.iterrows():
             if row.get('Trạng thái') == 'Đang mượn':
                 device = row.get('Tên')
                 user = row.get('Người sử dụng', '')
-                user_bookings = df_lich[(df_lich['Thiết bị'] == device) & (df_lich['Người sử dụng'] == user)]
+                user_bookings = df_today[(df_today['Thiết bị'] == device) & (df_today['Người sử dụng'] == user)]
                 
                 if not user_bookings.empty:
-                    latest_end_dt = None
-                    for _, b_row in user_bookings.iterrows():
+                    latest_end = None
+                    for ca in user_bookings['Ca làm việc']:
                         try:
-                            b_date = datetime.strptime(str(b_row['Ngày']), "%d/%m/%Y").date()
-                            ca = str(b_row['Ca làm việc'])
-                            if " - " in ca:
-                                _, e_str = ca.split(" - ")
-                                e_time = parse_time(e_str)
-                                end_dt = datetime.combine(b_date, e_time, tzinfo=VN_TZ)
-                                if latest_end_dt is None or end_dt > latest_end_dt:
-                                    latest_end_dt = end_dt
+                            _, e_str = ca.split(" - ")
+                            e_time = parse_time(e_str)
+                            if latest_end is None or e_time > latest_end:
+                                latest_end = e_time
                         except: pass
                     
-                    # Tự động trả về Sẵn sàng khi quá giờ mượn
-                    if latest_end_dt and now >= latest_end_dt:
+                    if latest_end and now.time() >= latest_end:
                         cell = sheet_thietbi.find(device)
                         sheet_thietbi.update_cell(cell.row, 3, "Sẵn sàng")
                         sheet_thietbi.update_cell(cell.row, 4, "")
@@ -122,6 +120,8 @@ if not st.session_state['logged_in']:
 # ==========================================
 else:
     df_tk = load_data("TaiKhoan")
+    df_lich_view = load_data("LichTuan")
+    df_h = load_data("LichSu")
     
     if not df_tk.empty and "TrangThai" not in df_tk.columns:
         num_cols = len(df_tk.columns)
@@ -129,7 +129,7 @@ else:
         load_data.clear()
         df_tk = load_data("TaiKhoan")
         
-    # ---------------- SIDEBAR: QUẢN LÝ TRẠNG THÁI CÁ NHÂN ----------------
+    # ---------------- SIDEBAR: TRUNG TÂM ĐIỀU KHIỂN CÁ NHÂN ----------------
     with st.sidebar:
         st.markdown(f"### 👤 {st.session_state['ho_ten']}")
         st.markdown("---")
@@ -169,18 +169,82 @@ else:
             st.markdown("---")
             if st.button("🆘 NÚT KHẨN CẤP", use_container_width=True, type="primary"):
                 update_status("CẦN TRỢ GIÚP")
-            
+        
         st.markdown("---")
         
-        df_lich_view_sb = load_data("LichTuan")
+        # 1. EXPANDER: TRẠNG THÁI THÀNH VIÊN LAB
+        with st.expander("👥 Trạng thái Thành viên Lab", expanded=False):
+            if "TrangThai" in df_tk.columns:
+                for _, row in df_tk.iterrows():
+                    mem_name = row['HoTen']
+                    mem_status = row.get('TrangThai', '⚪ Đã về')
+                    if not mem_status: mem_status = "⚪ Đã về"
+                    
+                    icon = "⚪"
+                    if mem_status == "CẦN TRỢ GIÚP": icon = "🚨"
+                    elif "Ở Lab" in mem_status: icon = "🟢"
+                    elif "Đang bận" in mem_status: icon = "🟡"
+                    
+                    st.markdown(f"{icon} **{mem_name}** <span style='color:#666; font-size: 12px;'>({mem_status[2:]})</span>", unsafe_allow_html=True)
+        
+        # 2. EXPANDER: BẢNG XẾP HẠNG THỜI GIAN
+        with st.expander("🏆 Xếp hạng tuần này", expanded=False):
+            if not df_h.empty and len(df_h.columns) >= 3:
+                col_time = df_h.columns[0]
+                col_user = df_h.columns[1]
+                col_action = df_h.columns[2]
+                
+                df_h_temp = df_h.copy()
+                df_h_temp['Datetime'] = pd.to_datetime(df_h_temp[col_time], format="%d/%m/%Y %H:%M:%S", errors='coerce')
+                now_naive = get_now().replace(tzinfo=None)
+                start_of_week = now_naive - timedelta(days=now_naive.weekday())
+                start_of_week = start_of_week.replace(hour=0, minute=0, second=0, microsecond=0, tzinfo=None)
+                
+                df_week = df_h_temp[(df_h_temp['Datetime'] >= start_of_week) & (df_h_temp[col_user] != '🤖 Hệ thống')]
+                
+                user_stats = []
+                if not df_week.empty:
+                    users = df_week[col_user].unique()
+                    for u in users:
+                        u_logs = df_week[(df_week[col_user] == u) & (df_week[col_action].str.contains("Check-in|Check-out", na=False))].sort_values('Datetime')
+                        total_secs = 0
+                        last_in = None
+                        
+                        for _, r in u_logs.iterrows():
+                            action = str(r[col_action])
+                            if "Check-in" in action: last_in = r['Datetime']
+                            elif "Check-out" in action and last_in is not None:
+                                total_secs += (r['Datetime'] - last_in).total_seconds()
+                                last_in = None 
+                                
+                        if last_in is not None:
+                            total_secs += (now_naive - last_in).total_seconds()
+                            
+                        total_hours = round(total_secs / 3600, 1)
+                        if total_hours > 0:
+                            user_stats.append({'Thành viên': u, 'Tổng giờ': total_hours})
+
+                if not user_stats:
+                    st.write("Chưa có dữ liệu.")
+                else:
+                    stats = pd.DataFrame(user_stats).sort_values(by='Tổng giờ', ascending=False).reset_index(drop=True)
+                    for i, r in stats.iterrows():
+                        medal = "🏅"
+                        if i == 0: medal = "🥇"
+                        elif i == 1: medal = "🥈"
+                        elif i == 2: medal = "🥉"
+                        st.markdown(f"{medal} **{r['Thành viên']}**: {r['Tổng giờ']}h")
+
+        # 3. EXPANDER: LỊCH CỦA TÔI & HỦY LỊCH
         with st.expander("📋 Xem & Hủy lịch của tôi", expanded=False):
-            my_raw_bookings = df_lich_view_sb[df_lich_view_sb['Người sử dụng'] == st.session_state['ho_ten']]
+            my_raw_bookings = df_lich_view[df_lich_view['Người sử dụng'] == st.session_state['ho_ten']]
             valid_bookings, cancel_options = [], []
+            today = get_now().date()
             if not my_raw_bookings.empty:
                 for _, r in my_raw_bookings.iterrows():
                     try:
                         b_date = datetime.strptime(str(r['Ngày']), "%d/%m/%Y").date()
-                        if b_date >= get_now().date():
+                        if b_date >= today:
                             valid_bookings.append(r)
                             ca = str(r['Ca làm việc'])
                             if " - " in ca:
@@ -214,7 +278,7 @@ else:
             st.session_state['logged_in'] = False
             st.rerun()
 
-    # ---------------- NỘI DUNG CHÍNH ----------------
+    # ---------------- NỘI DUNG CHÍNH (MAIN UI) ----------------
     st.title("📅 Hệ thống Quản lý Thiết bị Lab")
     
     if "CẦN TRỢ GIÚP" in df_tk['TrangThai'].values:
@@ -230,14 +294,11 @@ else:
     auto_return_devices()
     
     df_tb = load_data("ThietBi")
-    df_lich_view = load_data("LichTuan")
     all_devices = df_tb['Tên'].tolist() if not df_tb.empty else []
     
-    today = get_now().date()
     days_7 = [(today + timedelta(days=i)).strftime("%d/%m/%Y") for i in range(7)]
     time_options = [f"{h:02d}:{m:02d}" for h in range(24) for m in (0, 15, 30, 45)]
 
-    # Hàm định dạng chữ trong Dropdown chọn thiết bị
     def format_device_option(dev_name):
         if df_tb.empty or dev_name not in df_tb['Tên'].values:
             return dev_name
@@ -249,38 +310,23 @@ else:
         note = row.get(note_col, '') if note_col else ''
         note_str = f" | 📝 {note}" if note else ""
         
-        if status == 'Sẵn sàng':
-            return f"🟢 {dev_name} (Sẵn sàng){note_str}"
-        else:
-            return f"🔴 {dev_name} (Đang bận: {user}){note_str}"
+        if status == 'Sẵn sàng': return f"🟢 {dev_name} (Sẵn sàng){note_str}"
+        else: return f"🔴 {dev_name} (Bận: {user}){note_str}"
 
-    tab1, tab2, tab3, tab4 = st.tabs(["📅 Đăng ký thiết bị", "👥 Thành viên & Xếp hạng", "🕒 Lịch sử", "🔄 Trả thiết bị"])
+    # CẤU TRÚC RÚT GỌN CÒN 3 TABS CHÍNH
+    tab1, tab2, tab3 = st.tabs(["📅 Đăng ký thiết bị", "🕒 Lịch sử", "🔄 Trả thiết bị"])
 
-    # ================= TAB 1: ĐĂNG KÝ (Đã xóa bảng thiết bị) =================
+    # ================= TAB 1: ĐĂNG KÝ VÀ BIỂU ĐỒ =================
     with tab1:
         st.subheader("Đăng ký & Biểu đồ Timeline")
         c_filter, _ = st.columns([1, 2])
         with c_filter:
-            # Tích hợp thông tin vào ô dropdown
             view_mode = st.selectbox(
                 "🔍 Chọn thiết bị để thao tác:", 
                 all_devices if all_devices else ["Chưa có dữ liệu"],
                 format_func=format_device_option if all_devices else lambda x: x
             )
         
-        # Thẻ màu nhắc nhở nhanh cho thiết bị đang chọn (Giữ lại để nhấn mạnh)
-        if not df_tb.empty and view_mode in df_tb['Tên'].values:
-            current_status = df_tb[df_tb['Tên'] == view_mode].iloc[0]['Trạng thái']
-            current_user = df_tb[df_tb['Tên'] == view_mode].iloc[0].get('Người sử dụng', '')
-            note_col_name = "Ghi chú" if "Ghi chú" in df_tb.columns else None
-            current_note = df_tb[df_tb['Tên'] == view_mode].iloc[0].get(note_col_name, '') if note_col_name else ''
-            note_display = f"<br><span style='color: #666; font-size: 0.95em;'>📝 Ghi chú: <i>{current_note}</i></span>" if current_note else ""
-
-            if current_status == 'Sẵn sàng':
-                st.markdown(f"<div style='padding: 10px; border-radius: 8px; background-color: #d4edda; color: #155724; border: 1px solid #c3e6cb;'><h5 style='margin: 0;'>🟢 <b>{view_mode}</b> đang SẴN SÀNG!{note_display}</h5></div>", unsafe_allow_html=True)
-            else:
-                st.markdown(f"<div style='padding: 10px; border-radius: 8px; background-color: #f8d7da; color: #721c24; border: 1px solid #f5c6cb;'><h5 style='margin: 0;'>🔴 <b>{view_mode}</b> đang BẬN (Bởi: <b>{current_user}</b>).{note_display}</h5></div>", unsafe_allow_html=True)
-
         st.write("") 
 
         with st.expander(f"👉 Mở Biểu đồ sử dụng của [{view_mode}]", expanded=True):
@@ -380,104 +426,14 @@ else:
                         st.success(f"✅ Đã chốt lịch sử dụng {view_mode} thành công!")
                     load_data.clear(); st.rerun()
 
-    # ================= TAB 2: THÀNH VIÊN LAB & BẢNG XẾP HẠNG =================
+    # ================= TAB 2: LỊCH SỬ =================
     with tab2:
-        st.subheader("👥 Trạng thái Thành viên Lab")
-        if "TrangThai" not in df_tk.columns:
-            st.warning("Đang tự động cập nhật cơ sở dữ liệu...")
-        else:
-            cols = st.columns(4) 
-            for idx, row in df_tk.iterrows():
-                mem_name = row['HoTen']
-                mem_status = row.get('TrangThai', '⚪ Đã về')
-                if not mem_status: mem_status = "⚪ Đã về"
-                
-                with cols[idx % 4]:
-                    if mem_status == "CẦN TRỢ GIÚP":
-                        st.markdown(f"<div style='background-color: #ff4b4b; color: white; padding: 20px; border-radius: 10px; text-align: center; margin-bottom: 15px; border: 2px solid darkred;'><h1 style='margin: 0; font-size: 30px;'>🚨</h1><h4 style='margin: 10px 0 5px 0; color: white;'>{mem_name}</h4><p style='margin: 0; font-weight: bold;'>ĐANG GẶP NGUY HIỂM!</p></div>", unsafe_allow_html=True)
-                    elif "Ở Lab" in mem_status:
-                        st.markdown(f"<div style='background-color: #d4edda; color: #155724; padding: 20px; border-radius: 10px; text-align: center; margin-bottom: 15px; border: 1px solid #c3e6cb;'><h1 style='margin: 0; font-size: 30px;'>🟢</h1><h4 style='margin: 10px 0 5px 0;'>{mem_name}</h4><p style='margin: 0;'>{mem_status}</p></div>", unsafe_allow_html=True)
-                    elif "Đang bận" in mem_status:
-                        st.markdown(f"<div style='background-color: #fff3cd; color: #856404; padding: 20px; border-radius: 10px; text-align: center; margin-bottom: 15px; border: 1px solid #ffeeba;'><h1 style='margin: 0; font-size: 30px;'>🟡</h1><h4 style='margin: 10px 0 5px 0;'>{mem_name}</h4><p style='margin: 0;'>{mem_status}</p></div>", unsafe_allow_html=True)
-                    else:
-                        st.markdown(f"<div style='background-color: #f8f9fa; color: #6c757d; padding: 20px; border-radius: 10px; text-align: center; margin-bottom: 15px; border: 1px solid #dee2e6;'><h1 style='margin: 0; font-size: 30px;'>⚪</h1><h4 style='margin: 10px 0 5px 0;'>{mem_name}</h4><p style='margin: 0;'>{mem_status}</p></div>", unsafe_allow_html=True)
-
-        st.markdown("---")
-        
-        st.subheader("🏆 Bảng xếp hạng Thời gian (Tuần này)")
-        st.info("💡 Bảng xếp hạng dựa trên tổng số giờ thực tế có mặt tại Lab. Nhớ bấm '🟢 Ở Lab' khi đến và '⚪ Về' khi ra khỏi Lab để hệ thống chấm công nhé!")
-        
-        df_h = load_data("LichSu")
-        if not df_h.empty and len(df_h.columns) >= 3:
-            col_time = df_h.columns[0]
-            col_user = df_h.columns[1]
-            col_action = df_h.columns[2]
-            
-            df_h['Datetime'] = pd.to_datetime(df_h[col_time], format="%d/%m/%Y %H:%M:%S", errors='coerce')
-            now_naive = get_now().replace(tzinfo=None)
-            
-            start_of_week = now_naive - timedelta(days=now_naive.weekday())
-            start_of_week = start_of_week.replace(hour=0, minute=0, second=0, microsecond=0, tzinfo=None)
-            
-            df_week = df_h[(df_h['Datetime'] >= start_of_week) & (df_h[col_user] != '🤖 Hệ thống')]
-            
-            user_stats = []
-            if not df_week.empty:
-                users = df_week[col_user].unique()
-                for u in users:
-                    u_logs = df_week[(df_week[col_user] == u) & (df_week[col_action].str.contains("Check-in|Check-out", na=False))].sort_values('Datetime')
-                    total_secs = 0
-                    last_in = None
-                    
-                    for _, r in u_logs.iterrows():
-                        action = str(r[col_action])
-                        if "Check-in" in action:
-                            last_in = r['Datetime']
-                        elif "Check-out" in action and last_in is not None:
-                            total_secs += (r['Datetime'] - last_in).total_seconds()
-                            last_in = None 
-                            
-                    if last_in is not None:
-                        total_secs += (now_naive - last_in).total_seconds()
-                        
-                    total_hours = round(total_secs / 3600, 1)
-                    usages = len(df_week[(df_week[col_user] == u) & (~df_week[col_action].str.contains("Check-in|Check-out", na=False))])
-                    
-                    if total_hours > 0 or usages > 0:
-                        user_stats.append({'Thành viên': u, 'Tổng giờ': total_hours, 'Số lượt dùng máy': usages})
-
-            if not user_stats:
-                st.success("Chưa có dữ liệu chấm công tuần này. Hãy check-in để mở bát nhé!")
-            else:
-                stats = pd.DataFrame(user_stats)
-                stats = stats.sort_values(by='Tổng giờ', ascending=False).reset_index(drop=True)
-                
-                if len(stats) >= 1:
-                    c1, c2, c3 = st.columns(3)
-                    if len(stats) >= 1:
-                        with c2:
-                            st.markdown(f"<div style='text-align:center; padding:15px; background:#fff8e1; border-radius:15px; border: 2px solid #ffc107; box-shadow: 0 4px 8px rgba(0,0,0,0.1); transform: scale(1.05);'><h1 style='font-size: 50px; margin:0;'>🥇</h1><h3 style='margin: 10px 0 5px 0; color: #b78100;'>{stats.iloc[0]['Thành viên']}</h3><p style='margin:0; font-size:18px; font-weight:bold;'>⏱️ {stats.iloc[0]['Tổng giờ']} giờ</p><p style='margin:0; font-size:12px; color:#666;'>{stats.iloc[0]['Số lượt dùng máy']} lượt thao tác máy</p></div>", unsafe_allow_html=True)
-                    if len(stats) >= 2:
-                        with c1:
-                            st.markdown(f"<div style='text-align:center; padding:15px; background:#f8f9fa; border-radius:15px; border: 2px solid #adb5bd; margin-top: 30px;'><h1 style='font-size: 40px; margin:0;'>🥈</h1><h4 style='margin: 10px 0 5px 0; color: #495057;'>{stats.iloc[1]['Thành viên']}</h4><p style='margin:0; font-size:16px; font-weight:bold;'>⏱️ {stats.iloc[1]['Tổng giờ']} giờ</p><p style='margin:0; font-size:12px; color:#666;'>{stats.iloc[1]['Số lượt dùng máy']} lượt thao tác máy</p></div>", unsafe_allow_html=True)
-                    if len(stats) >= 3:
-                        with c3:
-                            st.markdown(f"<div style='text-align:center; padding:15px; background:#fdf3eb; border-radius:15px; border: 2px solid #d99a6c; margin-top: 40px;'><h1 style='font-size: 35px; margin:0;'>🥉</h1><h4 style='margin: 10px 0 5px 0; color: #9c5c2d;'>{stats.iloc[2]['Thành viên']}</h4><p style='margin:0; font-size:16px; font-weight:bold;'>⏱️ {stats.iloc[2]['Tổng giờ']} giờ</p><p style='margin:0; font-size:12px; color:#666;'>{stats.iloc[2]['Số lượt dùng máy']} lượt thao tác máy</p></div>", unsafe_allow_html=True)
-
-                st.write("")
-                st.markdown("#### 🕒 Bảng chấm công chi tiết")
-                stats.index = stats.index + 1
-                stats = stats.rename(columns={'Tổng giờ': 'Tổng thời gian tại Lab (Giờ)'})
-                st.dataframe(stats, use_container_width=True)
-
-    # --- TAB 3: LỊCH SỬ ---
-    with tab3:
         st.subheader("Lịch sử hoạt động")
         df_h = load_data("LichSu")
         if not df_h.empty: st.dataframe(df_h.iloc[::-1], use_container_width=True, hide_index=True)
 
-    # --- TAB 4: TRẢ THIẾT BỊ ---
-    with tab4:
+    # ================= TAB 3: TRẢ THIẾT BỊ =================
+    with tab3:
         st.subheader("🔄 Hoàn trả & Ghi chú tình trạng thiết bị")
         if "Người sử dụng" in df_tb.columns:
             my_list = df_tb[df_tb["Người sử dụng"] == st.session_state['ho_ten']]['Tên'].tolist()
