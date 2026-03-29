@@ -205,8 +205,7 @@ else:
                             if " - " in ca:
                                 try:
                                     s_str, e_str = ca.split(" - ")
-                                    s_time = parse_time(s_str)
-                                    e_time = parse_time(e_str)
+                                    s_time, e_time = parse_time(s_str), parse_time(e_str)
                                     
                                     start_min = s_time.hour * 60 + s_time.minute
                                     end_min = e_time.hour * 60 + e_time.minute
@@ -250,8 +249,7 @@ else:
                         df_day_device = df_lich_rt[(df_lich_rt['Ngày'] == d_str) & (df_lich_rt['Thiết bị'] == view_mode)]
                         for _, row in df_day_device.iterrows():
                             try:
-                                exist_start = parse_time(row['Ca làm việc'].split(" - ")[0])
-                                exist_end = parse_time(row['Ca làm việc'].split(" - ")[1])
+                                exist_start, exist_end = parse_time(row['Ca làm việc'].split(" - ")[0]), parse_time(row['Ca làm việc'].split(" - ")[1])
                                 if t_start < exist_end and exist_start < t_end and row['Người sử dụng'] != st.session_state['ho_ten']:
                                     conflict_found.append(f"{row['Ca làm việc']} (Bởi: {row['Người sử dụng'].split()[-1]})")
                             except: pass
@@ -335,11 +333,12 @@ else:
         <style>@keyframes blinker {{ 50% {{ opacity: 0.5; }} }}</style>
         """, unsafe_allow_html=True)
 
-    mt1, mt2, mt3 = st.tabs(["👥 Thành viên Lab", "🏆 Bảng xếp hạng", "📋 Lịch của tôi"])
+    # RÚT GỌN CÒN 2 TABS CHÍNH
+    mt1, mt2 = st.tabs(["👥 Thành viên & Lịch trình", "🏆 Bảng xếp hạng"])
 
-    # ================= MAIN TAB 1: THÀNH VIÊN LAB =================
+    # ================= MAIN TAB 1: THÀNH VIÊN VÀ LỊCH CỦA HỌ =================
     with mt1:
-        st.subheader("👥 Trạng thái Thành viên Lab")
+        st.subheader("Trạng thái hiện tại")
         if "TrangThai" not in df_tk.columns:
             st.warning("Đang tự động cập nhật cơ sở dữ liệu...")
         else:
@@ -351,13 +350,63 @@ else:
                 
                 with cols[idx % 4]:
                     if mem_status == "CẦN TRỢ GIÚP":
-                        st.markdown(f"<div style='background-color: #ff4b4b; color: white; padding: 20px; border-radius: 10px; text-align: center; margin-bottom: 15px; border: 2px solid darkred;'><h1 style='margin: 0; font-size: 30px;'>🚨</h1><h4 style='margin: 10px 0 5px 0; color: white;'>{mem_name}</h4><p style='margin: 0; font-weight: bold;'>ĐANG GẶP NGUY HIỂM!</p></div>", unsafe_allow_html=True)
+                        st.markdown(f"<div style='background-color: #ff4b4b; color: white; padding: 15px; border-radius: 10px; text-align: center; margin-bottom: 15px; border: 2px solid darkred;'><h2 style='margin: 0; font-size: 24px;'>🚨</h2><h5 style='margin: 5px 0 2px 0; color: white;'>{mem_name}</h5><p style='margin: 0; font-size: 13px; font-weight: bold;'>NGUY HIỂM!</p></div>", unsafe_allow_html=True)
                     elif "Ở Lab" in mem_status:
-                        st.markdown(f"<div style='background-color: #d4edda; color: #155724; padding: 20px; border-radius: 10px; text-align: center; margin-bottom: 15px; border: 1px solid #c3e6cb;'><h1 style='margin: 0; font-size: 30px;'>🟢</h1><h4 style='margin: 10px 0 5px 0;'>{mem_name}</h4><p style='margin: 0;'>{mem_status}</p></div>", unsafe_allow_html=True)
+                        st.markdown(f"<div style='background-color: #d4edda; color: #155724; padding: 15px; border-radius: 10px; text-align: center; margin-bottom: 15px; border: 1px solid #c3e6cb;'><h2 style='margin: 0; font-size: 24px;'>🟢</h2><h5 style='margin: 5px 0 2px 0;'>{mem_name}</h5><p style='margin: 0; font-size: 13px;'>{mem_status}</p></div>", unsafe_allow_html=True)
                     elif "Đang bận" in mem_status:
-                        st.markdown(f"<div style='background-color: #fff3cd; color: #856404; padding: 20px; border-radius: 10px; text-align: center; margin-bottom: 15px; border: 1px solid #ffeeba;'><h1 style='margin: 0; font-size: 30px;'>🟡</h1><h4 style='margin: 10px 0 5px 0;'>{mem_name}</h4><p style='margin: 0;'>{mem_status}</p></div>", unsafe_allow_html=True)
+                        st.markdown(f"<div style='background-color: #fff3cd; color: #856404; padding: 15px; border-radius: 10px; text-align: center; margin-bottom: 15px; border: 1px solid #ffeeba;'><h2 style='margin: 0; font-size: 24px;'>🟡</h2><h5 style='margin: 5px 0 2px 0;'>{mem_name}</h5><p style='margin: 0; font-size: 13px;'>{mem_status}</p></div>", unsafe_allow_html=True)
                     else:
-                        st.markdown(f"<div style='background-color: #f8f9fa; color: #6c757d; padding: 20px; border-radius: 10px; text-align: center; margin-bottom: 15px; border: 1px solid #dee2e6;'><h1 style='margin: 0; font-size: 30px;'>⚪</h1><h4 style='margin: 10px 0 5px 0;'>{mem_name}</h4><p style='margin: 0;'>{mem_status}</p></div>", unsafe_allow_html=True)
+                        st.markdown(f"<div style='background-color: #f8f9fa; color: #6c757d; padding: 15px; border-radius: 10px; text-align: center; margin-bottom: 15px; border: 1px solid #dee2e6;'><h2 style='margin: 0; font-size: 24px;'>⚪</h2><h5 style='margin: 5px 0 2px 0;'>{mem_name}</h5><p style='margin: 0; font-size: 13px;'>{mem_status}</p></div>", unsafe_allow_html=True)
+
+        st.markdown("---")
+        
+        # --- TÍCH HỢP TÍNH NĂNG XEM LỊCH BẤT KỲ AI ---
+        st.subheader("📅 Lịch trình cá nhân")
+        st.info("💡 Bạn có thể xem lịch đăng ký thiết bị của mọi người để tiện phối hợp làm thí nghiệm.")
+        
+        member_list = df_tk['HoTen'].tolist()
+        try: default_idx = member_list.index(st.session_state['ho_ten'])
+        except: default_idx = 0
+        
+        selected_mem = st.selectbox("👤 Chọn thành viên để xem lịch:", member_list, index=default_idx)
+        
+        raw_bookings = df_lich_view[df_lich_view['Người sử dụng'] == selected_mem]
+        valid_bookings, cancel_options = [], []
+        
+        if not raw_bookings.empty:
+            for _, r in raw_bookings.iterrows():
+                try:
+                    b_date = datetime.strptime(str(r['Ngày']), "%d/%m/%Y").date()
+                    if b_date >= today:
+                        valid_bookings.append(r)
+                        ca = str(r['Ca làm việc'])
+                        # Chỉ lấy những lịch chưa diễn ra vào danh sách hủy
+                        if " - " in ca and selected_mem == st.session_state['ho_ten']:
+                            s_str = ca.split(" - ")[0]
+                            start_dt = datetime.combine(b_date, parse_time(s_str), tzinfo=VN_TZ)
+                            if start_dt > get_now(): cancel_options.append(f"[{r['Ngày']}] {r['Thiết bị']} | {ca}")
+                except: pass
+        
+        if not valid_bookings: 
+            st.success(f"{selected_mem} hiện chưa đăng ký sử dụng thiết bị nào.")
+        else:
+            st.dataframe(pd.DataFrame(valid_bookings)[['Ngày', 'Ca làm việc', 'Thiết bị', 'Mục đích']], use_container_width=True, hide_index=True)
+            
+            # Chỉ hiển thị tính năng Hủy lịch nếu người dùng đang tự soi lịch của chính mình
+            if selected_mem == st.session_state['ho_ten'] and cancel_options:
+                st.markdown("---")
+                with st.form("cancel_booking_main"):
+                    st.write("**🗑️ Hủy lịch của tôi**")
+                    selected_cancel = st.selectbox("Chọn lịch:", cancel_options, label_visibility="collapsed")
+                    if st.form_submit_button("Xác nhận Hủy lịch"):
+                        day = selected_cancel.split("] ")[0].replace("[", "")
+                        dev, ca = selected_cancel.split("] ")[1].split(" | ")
+                        records = sheet_lichtuan.get_all_records()
+                        row_to_delete = next((i + 2 for i, r in enumerate(records) if str(r['Ngày']) == day and str(r['Thiết bị']) == dev and str(r['Ca làm việc']) == ca and str(r['Người sử dụng']) == st.session_state['ho_ten']), None)
+                        if row_to_delete:
+                            sheet_lichtuan.delete_rows(row_to_delete)
+                            sheet_lichsu.append_row([get_now().strftime("%d/%m/%Y %H:%M:%S"), st.session_state['ho_ten'], f"Hủy lịch ({ca})", dev, "Tự hủy"])
+                            st.success(f"✅ Đã hủy lịch {dev}."); load_data.clear(); st.rerun()
 
     # ================= MAIN TAB 2: BẢNG XẾP HẠNG =================
     with mt2:
@@ -413,38 +462,3 @@ else:
                 st.write("")
                 stats.index = stats.index + 1
                 st.dataframe(stats, use_container_width=True)
-
-    # ================= MAIN TAB 3: LỊCH CỦA TÔI =================
-    with mt3:
-        st.subheader("📋 Các lịch bạn đã đăng ký (Từ hôm nay)")
-        my_raw_bookings = df_lich_view[df_lich_view['Người sử dụng'] == st.session_state['ho_ten']]
-        valid_bookings, cancel_options = [], []
-        if not my_raw_bookings.empty:
-            for _, r in my_raw_bookings.iterrows():
-                try:
-                    b_date = datetime.strptime(str(r['Ngày']), "%d/%m/%Y").date()
-                    if b_date >= today:
-                        valid_bookings.append(r)
-                        ca = str(r['Ca làm việc'])
-                        if " - " in ca:
-                            s_str = ca.split(" - ")[0]
-                            start_dt = datetime.combine(b_date, parse_time(s_str), tzinfo=VN_TZ)
-                            if start_dt > get_now(): cancel_options.append(f"[{r['Ngày']}] {r['Thiết bị']} | {ca}")
-                except: pass
-        
-        if not valid_bookings: st.success("Bạn hiện chưa đăng ký thiết bị nào.")
-        else:
-            st.dataframe(pd.DataFrame(valid_bookings)[['Ngày', 'Ca làm việc', 'Thiết bị', 'Mục đích']], use_container_width=True, hide_index=True)
-            st.markdown("---")
-            if cancel_options:
-                with st.form("cancel_booking_main"):
-                    selected_cancel = st.selectbox("🗑️ Chọn lịch muốn hủy:", cancel_options)
-                    if st.form_submit_button("Xác nhận Hủy lịch"):
-                        day = selected_cancel.split("] ")[0].replace("[", "")
-                        dev, ca = selected_cancel.split("] ")[1].split(" | ")
-                        records = sheet_lichtuan.get_all_records()
-                        row_to_delete = next((i + 2 for i, r in enumerate(records) if str(r['Ngày']) == day and str(r['Thiết bị']) == dev and str(r['Ca làm việc']) == ca and str(r['Người sử dụng']) == st.session_state['ho_ten']), None)
-                        if row_to_delete:
-                            sheet_lichtuan.delete_rows(row_to_delete)
-                            sheet_lichsu.append_row([get_now().strftime("%d/%m/%Y %H:%M:%S"), st.session_state['ho_ten'], f"Hủy lịch ({ca})", dev, "Tự hủy"])
-                            st.success(f"✅ Đã hủy lịch {dev}."); load_data.clear(); st.rerun()
