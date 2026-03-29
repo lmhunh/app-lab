@@ -351,7 +351,7 @@ else:
         st.info("💡 Bảng xếp hạng tính từ Thứ 2 đến Chủ nhật tuần này. Điểm được cộng khi bạn Check-in '🟢 Ở Lab' và mỗi lượt sử dụng thiết bị.")
         
         df_h = load_data("LichSu")
-        # SỬA LỖI KEYERROR: Bắt theo index của cột thay vì Tên cột (do có thể bạn đặt tiêu đề khác)
+        # SỬA LỖI KEYERROR TẠI ĐÂY: Xóa múi giờ (tzinfo=None) cho start_of_week
         if not df_h.empty and len(df_h.columns) >= 3:
             col_time = df_h.columns[0]
             col_user = df_h.columns[1]
@@ -361,7 +361,8 @@ else:
             
             now = get_now()
             start_of_week = now - timedelta(days=now.weekday())
-            start_of_week = start_of_week.replace(hour=0, minute=0, second=0, microsecond=0)
+            # FIX: Thêm tzinfo=None để đồng bộ với Datetime của Pandas
+            start_of_week = start_of_week.replace(hour=0, minute=0, second=0, microsecond=0, tzinfo=None)
             
             df_week = df_h[(df_h['Datetime'] >= start_of_week) & (df_h[col_user] != '🤖 Hệ thống')]
             
