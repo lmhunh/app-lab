@@ -3,7 +3,7 @@ import pandas as pd
 import gspread
 from datetime import datetime, timedelta, timezone, time as dt_time
 import time
-import urllib.parse # Thư viện để mã hóa tên thành URL cho Avatar
+import urllib.parse 
 
 # ==========================================
 # 1. CẤU HÌNH & KẾT NỐI (GMT+7)
@@ -116,10 +116,10 @@ def auto_return_devices():
     except: pass
 
 # ==========================================
-# 3. LOGIC ĐĂNG NHẬP
+# 3. LOGIC ĐĂNG NHẬP KÈM KIỂM TRA CẤP ĐỘ
 # ==========================================
 if 'logged_in' not in st.session_state:
-    st.session_state.update({'logged_in': False, 'ho_ten': "", 'tai_khoan': ""})
+    st.session_state.update({'logged_in': False, 'ho_ten': "", 'tai_khoan': "", 'cap_do': 2})
 
 if not st.session_state['logged_in']:
     col1, col2, col3 = st.columns([1, 2, 1])
@@ -140,7 +140,15 @@ if not st.session_state['logged_in']:
                 df_tk = load_data("TaiKhoan")
                 match = df_tk[(df_tk['TaiKhoan'].astype(str) == u) & (df_tk['MatKhau'].astype(str) == p)]
                 if not match.empty:
-                    st.session_state.update({'logged_in': True, 'ho_ten': match.iloc[0]['HoTen'], 'tai_khoan': match.iloc[0]['TaiKhoan']})
+                    role_val = match.iloc[0].get('CapDo', 2)
+                    if pd.isna(role_val) or str(role_val).strip() == "": role_val = 2
+                    
+                    st.session_state.update({
+                        'logged_in': True, 
+                        'ho_ten': match.iloc[0]['HoTen'], 
+                        'tai_khoan': match.iloc[0]['TaiKhoan'],
+                        'cap_do': int(role_val)
+                    })
                     st.rerun()
                 else: st.error("Sai tài khoản hoặc mật khẩu!")
 
@@ -156,21 +164,24 @@ else:
     df_tailieu = load_data("TaiLieu")
     all_devices = df_tb['Tên'].tolist() if not df_tb.empty else []
     
+    my_role = st.session_state.get('cap_do', 2)
+    role_badge = "👑 Quản lý" if my_role == 1 else ("🎒 Khách" if my_role == 3 else "👨‍🔬 Nội bộ")
+    
     today = get_now().date()
     days_7 = [(today + timedelta(days=i)).strftime("%d/%m/%Y") for i in range(7)]
     time_options = [f"{h:02d}:{m:02d}" for h in range(24) for m in (0, 15, 30, 45)]
     
-    # --- TỰ ĐỘNG TẠO CỘT TrangThai & Avatar NẾU CHƯA CÓ ---
+    # --- TỰ ĐỘNG TẠO CỘT TrangThai, Avatar, CapDo NẾU CHƯA CÓ ---
     if not df_tk.empty:
-        cols_updated = False
-        if "TrangThai" not in df_tk.columns:
-            sheet_taikhoan.update_cell(1, len(df_tk.columns) + 1, "TrangThai")
-            cols_updated = True
-        if "Avatar" not in df_tk.columns:
-            sheet_taikhoan.update_cell(1, len(df_tk.columns) + (2 if cols_updated else 1), "Avatar")
-            cols_updated = True
-            
-        if cols_updated:
+        missing_cols = []
+        if "TrangThai" not in df_tk.columns: missing_cols.append("TrangThai")
+        if "Avatar" not in df_tk.columns: missing_cols.append("Avatar")
+        if "CapDo" not in df_tk.columns: missing_cols.append("CapDo")
+        
+        if missing_cols:
+            num_cols = len(df_tk.columns)
+            for i, col in enumerate(missing_cols):
+                sheet_taikhoan.update_cell(1, num_cols + i + 1, col)
             load_data.clear()
             df_tk = load_data("TaiKhoan")
 
@@ -239,31 +250,30 @@ else:
 
     # ---------------- SIDEBAR: HỒ SƠ & TRẠNG THÁI NHANH ----------------
     with st.sidebar:
-        # Lấy Avatar cá nhân
         my_avatar_url = ""
         if "Avatar" in df_tk.columns:
             my_avatar_col = df_tk[df_tk['TaiKhoan'].astype(str) == str(st.session_state['tai_khoan'])]['Avatar'].values
             my_avatar_url = my_avatar_col[0] if len(my_avatar_col) > 0 and str(my_avatar_col[0]).strip() != "" else ""
         
-        # Nếu không có link ảnh thật, dùng API tạo ảnh từ chữ cái tên
         if not my_avatar_url:
             encoded_name = urllib.parse.quote(st.session_state['ho_ten'])
             my_avatar_url = f"https://ui-avatars.com/api/?name={encoded_name}&background=random&color=fff&size=128&bold=true"
 
-        # Hiển thị Avatar ở Sidebar
         st.markdown(f"""
-        <div style='text-align: center; margin-bottom: 15px;'>
+        <div style='text-align: center; margin-bottom: 10px;'>
             <img src='{my_avatar_url}' style='width: 90px; height: 90px; border-radius: 50%; border: 3px solid #ff69b4; box-shadow: 0 4px 10px rgba(0,0,0,0.15); object-fit: cover;'>
             <h3 style='margin-top: 10px; margin-bottom: 0;'>{st.session_state['ho_ten']}</h3>
-            <p style='color: #888; margin-top: 5px;'>⏱️ Giờ Lab tuần này: <b>{my_current_hours}h</b></p>
+            <p style='color: #666; font-size: 13px; font-weight: bold; margin-top: 2px; margin-bottom: 5px;'>{role_badge}</p>
+            <p style='color: #888; font-size: 14px; margin-top: 0px;'>⏱️ Giờ Lab tuần này: <b>{my_current_hours}h</b></p>
         </div>
         """, unsafe_allow_html=True)
         st.markdown("---")
         
-        if st.button("💬 Chat chung phòng Lab", use_container_width=True):
-            show_chat_popup()
-            
-        st.markdown("---")
+        # Chỉ Admin và Nội bộ mới thấy khung Chat
+        if my_role <= 2:
+            if st.button("💬 Chat chung phòng Lab", use_container_width=True):
+                show_chat_popup()
+            st.markdown("---")
         
         def update_status(new_status):
             cell = sheet_taikhoan.find(str(st.session_state['tai_khoan']))
@@ -332,10 +342,16 @@ else:
                     if b_date >= today:
                         valid_bookings.append(r)
                         ca = str(r['Ca làm việc'])
-                        if " - " in ca and mem_name == st.session_state['ho_ten']:
+                        
+                        # Admin (Level 1) có thể hủy lịch của BẤT KỲ AI. Sinh viên (Level 2,3) chỉ hủy lịch của mình.
+                        is_my_booking = (mem_name == st.session_state['ho_ten'])
+                        is_admin = (my_role == 1)
+                        
+                        if " - " in ca and (is_my_booking or is_admin):
                             s_str = ca.split(" - ")[0]
                             start_dt = datetime.combine(b_date, parse_time(s_str), tzinfo=VN_TZ)
-                            if start_dt > get_now(): cancel_options.append(f"[{r['Ngày']}] {r['Thiết bị']} | {ca}")
+                            if start_dt > get_now(): 
+                                cancel_options.append(f"[{r['Ngày']}] {r['Thiết bị']} | {ca} ({mem_name})")
                 except: pass
         
         if not valid_bookings: 
@@ -343,18 +359,27 @@ else:
         else:
             st.dataframe(pd.DataFrame(valid_bookings)[['Ngày', 'Ca làm việc', 'Thiết bị', 'Mục đích']], use_container_width=True, hide_index=True)
             
-            if mem_name == st.session_state['ho_ten'] and cancel_options:
+            if cancel_options:
                 st.markdown("---")
                 with st.form("cancel_booking_modal"):
-                    selected_cancel = st.selectbox("🗑️ Chọn lịch để hủy:", cancel_options)
+                    st.write("**🗑️ Thao tác Hủy lịch**")
+                    selected_cancel = st.selectbox("Chọn lịch:", cancel_options, label_visibility="collapsed")
                     if st.form_submit_button("Xác nhận Hủy", type="primary", use_container_width=True):
+                        # Bóc tách chuỗi định dạng "[Ngày] Thiết bị | Ca làm việc (Người dùng)"
                         day = selected_cancel.split("] ")[0].replace("[", "")
-                        dev, ca = selected_cancel.split("] ")[1].split(" | ")
+                        dev_ca_user = selected_cancel.split("] ")[1]
+                        dev = dev_ca_user.split(" | ")[0]
+                        ca_user = dev_ca_user.split(" | ")[1]
+                        ca = ca_user.split(" (")[0]
+                        user_to_cancel = ca_user.split(" (")[1].replace(")", "")
+                        
                         records = sheet_lichtuan.get_all_records()
-                        row_to_delete = next((i + 2 for i, r in enumerate(records) if str(r['Ngày']) == day and str(r['Thiết bị']) == dev and str(r['Ca làm việc']) == ca and str(r['Người sử dụng']) == st.session_state['ho_ten']), None)
+                        row_to_delete = next((i + 2 for i, r in enumerate(records) if str(r['Ngày']) == day and str(r['Thiết bị']) == dev and str(r['Ca làm việc']) == ca and str(r['Người sử dụng']) == user_to_cancel), None)
+                        
                         if row_to_delete:
                             sheet_lichtuan.delete_rows(row_to_delete)
-                            sheet_lichsu.append_row([get_now().strftime("%d/%m/%Y %H:%M:%S"), st.session_state['ho_ten'], f"Hủy lịch ({ca})", dev, "Tự hủy"])
+                            action_log = f"Hủy lịch của {user_to_cancel} ({ca})" if my_role == 1 and not is_my_booking else f"Hủy lịch ({ca})"
+                            sheet_lichsu.append_row([get_now().strftime("%d/%m/%Y %H:%M:%S"), st.session_state['ho_ten'], action_log, dev, "Hủy qua hệ thống"])
                             load_data.clear(); st.rerun()
 
     def format_device_option(dev_name):
@@ -366,13 +391,13 @@ else:
         if status == 'Sẵn sàng': return f"🟢 {dev_name} (Rảnh){note}"
         else: return f"🔴 {dev_name} (Bận: {user.split()[-1] if user else ''}){note}"
 
-    # ================= ĐIỀU HƯỚNG TABS CHÍNH (Super App Layout 4 Tabs) =================
+    # ================= ĐIỀU HƯỚNG TABS CHÍNH =================
     mt1, mt2, mt3, mt4 = st.tabs(["🏠 Tổng quan Lab", "🔬 Máy móc & Lịch", "🏆 Bảng vinh danh", "📚 Tài liệu & Link"])
 
-    # --- TAB 1: TỔNG QUAN LAB (Thành viên + Avatar) ---
+    # --- TAB 1: TỔNG QUAN LAB ---
     with mt1:
         st.markdown("### 🌐 Không gian làm việc")
-        st.write("Nhấn vào tên thành viên để xem lịch trình phối hợp nhóm.")
+        st.write("Nhấn vào thẻ thành viên để xem lịch trình cá nhân hoặc Hủy lịch nếu bạn có quyền.")
         
         if "TrangThai" not in df_tk.columns: st.warning("Đang đồng bộ...")
         else:
@@ -382,7 +407,6 @@ else:
                 mem_status = row.get('TrangThai', '⚪ Đã về')
                 if not mem_status: mem_status = "⚪ Đã về"
                 
-                # Logic lấy URL Avatar cho từng card
                 mem_avatar_url = row.get('Avatar', '')
                 if not mem_avatar_url or str(mem_avatar_url).strip() == "":
                     mem_avatar_url = f"https://ui-avatars.com/api/?name={urllib.parse.quote(mem_name)}&background=random&color=fff&size=128&bold=true"
@@ -402,7 +426,6 @@ else:
                     elif "Ở Lab" in mem_status: bg_color, border_color, text_color, icon = "#e6f4ea", "#c3e6cb", "#155724", "🟢"
                     elif "Đang bận" in mem_status: bg_color, border_color, text_color, icon = "#fff8e1", "#ffeeba", "#856404", "🟡"
 
-                    # HTML/CSS vẽ thẻ Card có chứa Avatar tròn và icon trạng thái góc dưới
                     st.markdown(f"""
                     <div style='background-color: {bg_color}; color: {text_color}; padding: 15px; border-radius: 12px 12px 0 0; text-align: center; border: 1px solid {border_color}; border-bottom: none;'>
                         <div style='position: relative; display: inline-block; margin-bottom: 10px;'>
@@ -568,20 +591,24 @@ else:
     # --- TAB 4: TÀI LIÊU & LINK ---
     with mt4:
         st.markdown("### 📚 Kho Tài Liệu & Ứng Dụng chung")
-        st.write("Nơi lưu trữ các quy trình vận hành máy (SOP), link tải phần mềm LabSpec, hoặc bài báo tham khảo.")
+        st.write("Nơi lưu trữ các quy trình vận hành máy (SOP), link phần mềm LabSpec, bài báo nghiên cứu Cu2O, ZnO...")
         
-        with st.expander("➕ Thêm Tài liệu / Link mới", expanded=False):
-            with st.form("add_doc_form"):
-                doc_name = st.text_input("Tên tài liệu / Ứng dụng (VD: Hướng dẫn sử dụng Raman LabSpec)")
-                doc_link = st.text_input("Đường dẫn (Link Google Drive, Website...)")
-                if st.form_submit_button("Thêm lên kho", type="primary"):
-                    if doc_name.strip() and doc_link.strip():
-                        sheet_tailieu.append_row([get_now().strftime("%d/%m/%Y %H:%M:%S"), st.session_state['ho_ten'], doc_name.strip(), doc_link.strip()])
-                        st.success("✅ Đã thêm tài liệu thành công!")
-                        load_data.clear(); st.rerun()
-                    else:
-                        st.error("Vui lòng nhập đủ thông tin.")
-                        
+        # Admin và Nội bộ mới được đăng tài liệu
+        if my_role <= 2:
+            with st.expander("➕ Thêm Tài liệu / Link mới", expanded=False):
+                with st.form("add_doc_form"):
+                    doc_name = st.text_input("Tên tài liệu / Ứng dụng (VD: Hướng dẫn LabSpec)")
+                    doc_link = st.text_input("Đường dẫn (Link Google Drive, Website...)")
+                    if st.form_submit_button("Thêm lên kho", type="primary"):
+                        if doc_name.strip() and doc_link.strip():
+                            sheet_tailieu.append_row([get_now().strftime("%d/%m/%Y %H:%M:%S"), st.session_state['ho_ten'], doc_name.strip(), doc_link.strip()])
+                            st.success("✅ Đã thêm tài liệu thành công!")
+                            load_data.clear(); st.rerun()
+                        else:
+                            st.error("Vui lòng nhập đủ thông tin.")
+        else:
+            st.info("🔒 Khách tham quan chỉ có quyền xem tài liệu, không được phép đăng mới.")
+                            
         st.markdown("---")
         
         if df_tailieu.empty:
