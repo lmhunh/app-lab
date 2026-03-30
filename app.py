@@ -18,6 +18,9 @@ st.markdown("""
     .css-1d391kg { padding-top: 1rem; }
     div[data-testid="stExpander"] { border-radius: 12px; border: 1px solid #e0e0e0; box-shadow: 0 2px 5px rgba(0,0,0,0.05); }
     h1 { text-align: center; color: #ff69b4; }
+    
+    /* Làm đẹp form chat */
+    div[data-testid="stChatMessage"] { background-color: #f1f8ff; border-radius: 15px; padding: 10px; margin-bottom: 10px; }
     </style>
 """, unsafe_allow_html=True)
 
@@ -30,6 +33,14 @@ def parse_time(t_str):
     try: return datetime.strptime(t_str, "%H:%M").time()
     except: return None
 
+def get_or_create_sheet(sh, name, cols):
+    try:
+        return sh.worksheet(name)
+    except Exception:
+        ws = sh.add_worksheet(title=name, rows=1000, cols=len(cols))
+        ws.append_row(cols)
+        return ws
+
 @st.cache_resource(ttl=3600)
 def init_google_sheets():
     try:
@@ -38,11 +49,15 @@ def init_google_sheets():
             creds_dict["private_key"] = creds_dict["private_key"].strip().replace("\\n", "\n")
         gc = gspread.service_account_from_dict(creds_dict)
         sh = gc.open("Quan_ly_lab") 
+        
         return {
             "ThietBi": sh.worksheet("ThietBi"),
             "TaiKhoan": sh.worksheet("TaiKhoan"),
             "LichSu": sh.worksheet("LichSu"),
-            "LichTuan": sh.worksheet("LichTuan")
+            "LichTuan": sh.worksheet("LichTuan"),
+            # Tự động tạo trang tính nếu chưa có
+            "Chat": get_or_create_sheet(sh, "Chat", ["Thời gian", "Người gửi", "Nội dung"]),
+            "TaiLieu": get_or_create_sheet(sh, "TaiLieu", ["Thời gian", "Người đăng", "Tên tài liệu", "Link"])
         }
     except Exception as e:
         st.error(f"❌ Lỗi kết nối Google Sheets: {e}")
@@ -53,8 +68,10 @@ sheet_thietbi = sheets["ThietBi"]
 sheet_taikhoan = sheets["TaiKhoan"]
 sheet_lichsu = sheets["LichSu"]
 sheet_lichtuan = sheets["LichTuan"]
+sheet_chat = sheets["Chat"]
+sheet_tailieu = sheets["TaiLieu"]
 
-@st.cache_data(ttl=15, show_spinner=False)
+@st.cache_data(ttl=10, show_spinner=False)
 def load_data(sheet_name):
     try: return pd.DataFrame(sheets[sheet_name].get_all_records())
     except gspread.exceptions.APIError:
@@ -133,11 +150,12 @@ if not st.session_state['logged_in']:
 # 4. GIAO DIỆN CHÍNH (SUPER APP UX)
 # ==========================================
 else:
-    # --- TẢI DATA TỔNG ---
     df_tk = load_data("TaiKhoan")
     df_tb = load_data("ThietBi")
     df_lich_view = load_data("LichTuan")
     df_h = load_data("LichSu")
+    df_chat = load_data("Chat")
+    df_tailieu = load_data("TaiLieu")
     all_devices = df_tb['Tên'].tolist() if not df_tb.empty else []
     
     today = get_now().date()
@@ -149,14 +167,13 @@ else:
         sheet_taikhoan.update_cell(1, num_cols + 1, "TrangThai")
         load_data.clear(); df_tk = load_data("TaiKhoan")
 
-    # --- TÍNH TOÁN BẢNG XẾP HẠNG NGẦM (FIXED LỖI 0 GIỜ) ---
+    # --- TÍNH TOÁN BẢNG XẾP HẠNG NGẦM ---
     df_rank = pd.DataFrame(columns=['Thành viên', 'Tổng giờ'])
     my_current_hours = 0.0
     if not df_h.empty and len(df_h.columns) >= 3:
         col_time, col_user, col_action = df_h.columns[0], df_h.columns[1], df_h.columns[2]
         df_h_temp = df_h.copy()
         
-        # Ép kiểu Datetime thông minh hơn, chống lỗi format của Google Sheets
         df_h_temp['Datetime'] = pd.to_datetime(df_h_temp[col_time], dayfirst=True, errors='coerce')
         if df_h_temp['Datetime'].isna().all():
             df_h_temp['Datetime'] = pd.to_datetime(df_h_temp[col_time], format="%d/%m/%Y %H:%M:%S", errors='coerce')
@@ -171,8 +188,6 @@ else:
             users = df_week[col_user].unique()
             for u in users:
                 u_logs = df_week[(df_week[col_user] == u) & (df_week[col_action].str.contains("Check-in|Check-out", na=False))].sort_values('Datetime')
-                
-                # Nếu người dùng có thao tác check-in/out, chắc chắn họ sẽ được lên bảng
                 if u_logs.empty: continue 
                 
                 total_secs, last_in = 0, None
@@ -182,11 +197,7 @@ else:
                     elif "Check-out" in action and last_in is not None:
                         total_secs += (r['Datetime'] - last_in).total_seconds(); last_in = None 
                 
-                # Live Ticking: Đang ở Lab thì cộng dồn số giây từ lúc check-in đến hiện tại
-                if last_in is not None: 
-                    total_secs += max(0, (now_naive - last_in).total_seconds())
-                
-                # Lấy 2 số thập phân để 0.01h (vừa check-in) vẫn hiển thị
+                if last_in is not None: total_secs += max(0, (now_naive - last_in).total_seconds())
                 total_hours = round(total_secs / 3600, 2) 
                 user_stats.append({'Thành viên': u, 'Tổng giờ': total_hours})
         
@@ -195,9 +206,42 @@ else:
             if st.session_state['ho_ten'] in df_rank['Thành viên'].values:
                 my_current_hours = df_rank[df_rank['Thành viên'] == st.session_state['ho_ten']]['Tổng giờ'].iloc[0]
 
+    # --- KHUNG POPUP CHAT CHUNG LAB ---
+    @st.dialog("💬 Khung Chat Lab 109")
+    def show_chat_popup():
+        st.write("Cùng trò chuyện, nhắc lịch, hoặc hỗ trợ nhau nhé!")
+        
+        # Vùng chứa tin nhắn
+        chat_container = st.container(height=350)
+        if not df_chat.empty:
+            # Hiển thị 30 tin nhắn gần nhất
+            for _, r in df_chat.tail(30).iterrows():
+                is_me = r['Người gửi'] == st.session_state['ho_ten']
+                with chat_container.chat_message("user" if is_me else "assistant"):
+                    st.markdown(f"<span style='font-size:12px; color:#888;'><b>{r['Người gửi']}</b> • {r['Thời gian']}</span>", unsafe_allow_html=True)
+                    st.write(r['Nội dung'])
+        else:
+            chat_container.info("Chưa có tin nhắn nào. Hãy là người mở lời!")
+            
+        with st.form("chat_form", clear_on_submit=True):
+            cols = st.columns([4, 1])
+            with cols[0]: msg = st.text_input("Nhập tin nhắn...", label_visibility="collapsed", placeholder="Nhắn gì đó...")
+            with cols[1]: submit_msg = st.form_submit_button("Gửi 🚀", use_container_width=True)
+            
+            if submit_msg and msg.strip():
+                sheet_chat.append_row([get_now().strftime("%d/%m/%Y %H:%M:%S"), st.session_state['ho_ten'], msg.strip()])
+                load_data.clear()
+                st.rerun()
+
     # ---------------- SIDEBAR: HỒ SƠ & TRẠNG THÁI NHANH ----------------
     with st.sidebar:
         st.markdown(f"<div style='text-align: center;'><h2 style='margin-bottom: 0;'>👨‍🔬</h2><h3 style='margin-top: 0;'>{st.session_state['ho_ten']}</h3><p style='color: #888;'>⏱️ Giờ Lab tuần này: <b>{my_current_hours}h</b></p></div>", unsafe_allow_html=True)
+        st.markdown("---")
+        
+        # Nút bật khung Chat
+        if st.button("💬 Chat chung phòng Lab", use_container_width=True):
+            show_chat_popup()
+            
         st.markdown("---")
         
         def update_status(new_status):
@@ -301,10 +345,10 @@ else:
         if status == 'Sẵn sàng': return f"🟢 {dev_name} (Rảnh){note}"
         else: return f"🔴 {dev_name} (Bận: {user.split()[-1] if user else ''}){note}"
 
-    # ================= ĐIỀU HƯỚNG TABS CHÍNH (Super App Layout) =================
-    mt1, mt2, mt3 = st.tabs(["🏠 Tổng quan Lab", "🔬 Máy móc & Lịch", "🏆 Bảng vinh danh"])
+    # ================= ĐIỀU HƯỚNG TABS CHÍNH (Super App Layout 4 Tabs) =================
+    mt1, mt2, mt3, mt4 = st.tabs(["🏠 Tổng quan Lab", "🔬 Máy móc & Lịch", "🏆 Bảng vinh danh", "📚 Tài liệu & Link"])
 
-    # --- TAB 1: TỔNG QUAN LAB (Thành viên) ---
+    # --- TAB 1: TỔNG QUAN LAB ---
     with mt1:
         st.markdown("### 🌐 Không gian làm việc")
         st.write("Nhấn vào tên thành viên để xem lịch trình phối hợp nhóm.")
@@ -471,7 +515,7 @@ else:
             st.markdown("#### Nhật ký hệ thống")
             if not df_h.empty: st.dataframe(df_h.iloc[::-1], use_container_width=True, hide_index=True)
 
-    # --- TAB 3: BẢNG VINH DANH (Gamification Detail) ---
+    # --- TAB 3: BẢNG VINH DANH ---
     with mt3:
         st.markdown("### 🏆 Bảng xếp hạng Tuần")
         st.write("Dựa trên thời gian check-in thực tế. Cố gắng lọt Top 3 nhé!")
@@ -490,3 +534,34 @@ else:
             st.dataframe(stats, use_container_width=True)
         else:
             st.info("Chưa có ai check-in tuần này.")
+
+    # --- TAB 4: TÀI LIÊU & LINK (MỚI) ---
+    with mt4:
+        st.markdown("### 📚 Kho Tài Liệu & Ứng Dụng chung")
+        st.write("Nơi lưu trữ các quy trình vận hành máy (SOP), link tải phần mềm LabSpec, hoặc bài báo tham khảo.")
+        
+        with st.expander("➕ Thêm Tài liệu / Link mới", expanded=False):
+            with st.form("add_doc_form"):
+                doc_name = st.text_input("Tên tài liệu / Ứng dụng (VD: Hướng dẫn sử dụng Raman LabSpec)")
+                doc_link = st.text_input("Đường dẫn (Link Google Drive, Website...)")
+                if st.form_submit_button("Thêm lên kho", type="primary"):
+                    if doc_name.strip() and doc_link.strip():
+                        sheet_tailieu.append_row([get_now().strftime("%d/%m/%Y %H:%M:%S"), st.session_state['ho_ten'], doc_name.strip(), doc_link.strip()])
+                        st.success("✅ Đã thêm tài liệu thành công!")
+                        load_data.clear(); st.rerun()
+                    else:
+                        st.error("Vui lòng nhập đủ thông tin.")
+                        
+        st.markdown("---")
+        
+        if df_tailieu.empty:
+            st.info("Kho tài liệu hiện đang trống.")
+        else:
+            # Hiển thị tài liệu theo dạng thẻ gọn gàng
+            for _, r in df_tailieu.iloc[::-1].iterrows():
+                st.markdown(f"""
+                <div style='padding: 15px; border-radius: 10px; border: 1px solid #e0e0e0; background: white; margin-bottom: 10px;'>
+                    <h5 style='margin: 0;'>🔗 <a href='{r['Link']}' target='_blank' style='text-decoration:none; color: #1a73e8;'>{r['Tên tài liệu']}</a></h5>
+                    <p style='color:#777; font-size: 13px; margin: 5px 0 0 0;'>Tải lên bởi: <b>{r['Người đăng']}</b> ({r['Thời gian']})</p>
+                </div>
+                """, unsafe_allow_html=True)
