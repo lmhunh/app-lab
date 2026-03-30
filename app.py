@@ -127,9 +127,9 @@ if not st.session_state['logged_in']:
         st.markdown("<h1 style='text-align: center;'>🔬 Lab 109</h1>", unsafe_allow_html=True)
         st.markdown("""
             <p style='text-align: center; color: #666; font-size: 1.1em;'>
-                Mỗi ngày đến Lab là một ngày vui. 🇻🇳
+                Mỗi ngày đến Lab là một ngày vui 🇻🇳
                 <br>
-                Cùng nhau nỗ lực, gặt hái thành công.
+                Sẽ vui hơn nếu chúng ta làm việc chăm chỉ
             </p>
         """, unsafe_allow_html=True)
         
