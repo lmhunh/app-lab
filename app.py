@@ -129,7 +129,7 @@ if not st.session_state['logged_in']:
             <p style='text-align: center; color: #666; font-size: 1.1em;'>
                 Mỗi ngày đến Lab là một ngày vui 🇻🇳
                 <br>
-                Sẽ vui hơn nếu chúng ta làm việc chăm chỉ
+                Sẽ vui hơn nếu chúng ta chăm chỉ
             </p>
         """, unsafe_allow_html=True)
         
@@ -210,9 +210,12 @@ else:
                 total_secs, last_in = 0, None
                 for _, r in u_logs.iterrows():
                     action = str(r[col_action])
-                    if "Check-in" in action: last_in = r['Datetime']
+                    # Đã Sửa: Cả Trạng Thái "Bận" và "Lab" đều được tính là Check-in, chỉ gán last_in nếu nó đang rỗng
+                    if "Check-in" in action: 
+                        if last_in is None: last_in = r['Datetime']
                     elif "Check-out" in action and last_in is not None:
-                        total_secs += (r['Datetime'] - last_in).total_seconds(); last_in = None 
+                        total_secs += (r['Datetime'] - last_in).total_seconds()
+                        last_in = None 
                 
                 if last_in is not None: total_secs += max(0, (now_naive - last_in).total_seconds())
                 total_hours = round(total_secs / 3600, 2) 
@@ -271,7 +274,6 @@ else:
         """, unsafe_allow_html=True)
         st.markdown("---")
         
-        # Chỉ Admin và Nội bộ mới thấy khung Chat
         if my_role <= 2:
             if st.button("💬 Chat chung phòng Lab", use_container_width=True):
                 show_chat_popup()
@@ -281,8 +283,15 @@ else:
             cell = sheet_taikhoan.find(str(st.session_state['tai_khoan']))
             col_idx = df_tk.columns.get_loc("TrangThai") + 1
             sheet_taikhoan.update_cell(cell.row, col_idx, new_status)
-            if new_status == "🟢 Ở Lab": sheet_lichsu.append_row([get_now().strftime("%d/%m/%Y %H:%M:%S"), st.session_state['ho_ten'], "📍 Check-in Lab", "", ""])
-            elif new_status == "⚪ Đã về": sheet_lichsu.append_row([get_now().strftime("%d/%m/%Y %H:%M:%S"), st.session_state['ho_ten'], "🏃 Check-out", "", ""])
+            
+            # Đã Sửa: Ghi nhận cả "Lab" và "Bận" đều là các dạng Check-in để tính giờ xếp hạng
+            if new_status == "🟢 Ở Lab": 
+                sheet_lichsu.append_row([get_now().strftime("%d/%m/%Y %H:%M:%S"), st.session_state['ho_ten'], "📍 Check-in Lab", "", ""])
+            elif new_status == "🟡 Đang bận": 
+                sheet_lichsu.append_row([get_now().strftime("%d/%m/%Y %H:%M:%S"), st.session_state['ho_ten'], "📍 Check-in (Bận)", "", ""])
+            elif new_status == "⚪ Đã về": 
+                sheet_lichsu.append_row([get_now().strftime("%d/%m/%Y %H:%M:%S"), st.session_state['ho_ten'], "🏃 Check-out", "", ""])
+                
             load_data.clear(); st.rerun()
 
         my_status_arr = df_tk[df_tk['TaiKhoan'].astype(str) == str(st.session_state['tai_khoan'])]['TrangThai'].values
@@ -316,9 +325,9 @@ else:
     st.markdown("<h1 style='text-align: center;'>🔬 Lab 109</h1>", unsafe_allow_html=True)
     st.markdown("""
         <p style='text-align: center; color: #666; font-size: 1.1em;'>
-            Mỗi ngày đến Lab là một ngày vui. 🇻🇳
+            Mỗi ngày đến Lab là một ngày vui 🇻🇳
             <br>
-            Cùng nhau nỗ lực, gặt hái thành công.
+            Sẽ vui hơn nếu chúng ta chăm chỉ
         </p>
     """, unsafe_allow_html=True)
 
@@ -393,14 +402,12 @@ else:
 
     # ================= ĐIỀU HƯỚNG TABS ĐỘNG THEO PHÂN QUYỀN =================
     if my_role <= 2:
-        # Cấp 1 & Cấp 2: Đầy đủ các Tab
         main_tabs = st.tabs(["🏠 Tổng quan Lab", "🔬 Máy móc & Lịch", "🏆 Bảng vinh danh", "📚 Tài liệu & Link"])
         tab_tong_quan = main_tabs[0]
         tab_may_moc = main_tabs[1]
         tab_vinh_danh = main_tabs[2]
         tab_tai_lieu = main_tabs[3]
     else:
-        # Cấp 3 (Khách): Chỉ hiện Tab thao tác máy
         main_tabs = st.tabs(["🔬 Máy móc & Lịch"])
         tab_tong_quan = None
         tab_may_moc = main_tabs[0]
