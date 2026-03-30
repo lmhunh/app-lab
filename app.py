@@ -3,6 +3,7 @@ import pandas as pd
 import gspread
 from datetime import datetime, timedelta, timezone, time as dt_time
 import time
+import urllib.parse # Thư viện để mã hóa tên thành URL cho Avatar
 
 # ==========================================
 # 1. CẤU HÌNH & KẾT NỐI (GMT+7)
@@ -18,8 +19,6 @@ st.markdown("""
     .css-1d391kg { padding-top: 1rem; }
     div[data-testid="stExpander"] { border-radius: 12px; border: 1px solid #e0e0e0; box-shadow: 0 2px 5px rgba(0,0,0,0.05); }
     h1 { text-align: center; color: #ff69b4; }
-    
-    /* Làm đẹp form chat */
     div[data-testid="stChatMessage"] { background-color: #f1f8ff; border-radius: 15px; padding: 10px; margin-bottom: 10px; }
     </style>
 """, unsafe_allow_html=True)
@@ -55,7 +54,6 @@ def init_google_sheets():
             "TaiKhoan": sh.worksheet("TaiKhoan"),
             "LichSu": sh.worksheet("LichSu"),
             "LichTuan": sh.worksheet("LichTuan"),
-            # Tự động tạo trang tính nếu chưa có
             "Chat": get_or_create_sheet(sh, "Chat", ["Thời gian", "Người gửi", "Nội dung"]),
             "TaiLieu": get_or_create_sheet(sh, "TaiLieu", ["Thời gian", "Người đăng", "Tên tài liệu", "Link"])
         }
@@ -162,10 +160,19 @@ else:
     days_7 = [(today + timedelta(days=i)).strftime("%d/%m/%Y") for i in range(7)]
     time_options = [f"{h:02d}:{m:02d}" for h in range(24) for m in (0, 15, 30, 45)]
     
-    if not df_tk.empty and "TrangThai" not in df_tk.columns:
-        num_cols = len(df_tk.columns)
-        sheet_taikhoan.update_cell(1, num_cols + 1, "TrangThai")
-        load_data.clear(); df_tk = load_data("TaiKhoan")
+    # --- TỰ ĐỘNG TẠO CỘT TrangThai & Avatar NẾU CHƯA CÓ ---
+    if not df_tk.empty:
+        cols_updated = False
+        if "TrangThai" not in df_tk.columns:
+            sheet_taikhoan.update_cell(1, len(df_tk.columns) + 1, "TrangThai")
+            cols_updated = True
+        if "Avatar" not in df_tk.columns:
+            sheet_taikhoan.update_cell(1, len(df_tk.columns) + (2 if cols_updated else 1), "Avatar")
+            cols_updated = True
+            
+        if cols_updated:
+            load_data.clear()
+            df_tk = load_data("TaiKhoan")
 
     # --- TÍNH TOÁN BẢNG XẾP HẠNG NGẦM ---
     df_rank = pd.DataFrame(columns=['Thành viên', 'Tổng giờ'])
@@ -210,11 +217,8 @@ else:
     @st.dialog("💬 Khung Chat Lab 109")
     def show_chat_popup():
         st.write("Cùng trò chuyện, nhắc lịch, hoặc hỗ trợ nhau nhé!")
-        
-        # Vùng chứa tin nhắn
         chat_container = st.container(height=350)
         if not df_chat.empty:
-            # Hiển thị 30 tin nhắn gần nhất
             for _, r in df_chat.tail(30).iterrows():
                 is_me = r['Người gửi'] == st.session_state['ho_ten']
                 with chat_container.chat_message("user" if is_me else "assistant"):
@@ -235,10 +239,27 @@ else:
 
     # ---------------- SIDEBAR: HỒ SƠ & TRẠNG THÁI NHANH ----------------
     with st.sidebar:
-        st.markdown(f"<div style='text-align: center;'><h2 style='margin-bottom: 0;'>👨‍🔬</h2><h3 style='margin-top: 0;'>{st.session_state['ho_ten']}</h3><p style='color: #888;'>⏱️ Giờ Lab tuần này: <b>{my_current_hours}h</b></p></div>", unsafe_allow_html=True)
+        # Lấy Avatar cá nhân
+        my_avatar_url = ""
+        if "Avatar" in df_tk.columns:
+            my_avatar_col = df_tk[df_tk['TaiKhoan'].astype(str) == str(st.session_state['tai_khoan'])]['Avatar'].values
+            my_avatar_url = my_avatar_col[0] if len(my_avatar_col) > 0 and str(my_avatar_col[0]).strip() != "" else ""
+        
+        # Nếu không có link ảnh thật, dùng API tạo ảnh từ chữ cái tên
+        if not my_avatar_url:
+            encoded_name = urllib.parse.quote(st.session_state['ho_ten'])
+            my_avatar_url = f"https://ui-avatars.com/api/?name={encoded_name}&background=random&color=fff&size=128&bold=true"
+
+        # Hiển thị Avatar ở Sidebar
+        st.markdown(f"""
+        <div style='text-align: center; margin-bottom: 15px;'>
+            <img src='{my_avatar_url}' style='width: 90px; height: 90px; border-radius: 50%; border: 3px solid #ff69b4; box-shadow: 0 4px 10px rgba(0,0,0,0.15); object-fit: cover;'>
+            <h3 style='margin-top: 10px; margin-bottom: 0;'>{st.session_state['ho_ten']}</h3>
+            <p style='color: #888; margin-top: 5px;'>⏱️ Giờ Lab tuần này: <b>{my_current_hours}h</b></p>
+        </div>
+        """, unsafe_allow_html=True)
         st.markdown("---")
         
-        # Nút bật khung Chat
         if st.button("💬 Chat chung phòng Lab", use_container_width=True):
             show_chat_popup()
             
@@ -348,7 +369,7 @@ else:
     # ================= ĐIỀU HƯỚNG TABS CHÍNH (Super App Layout 4 Tabs) =================
     mt1, mt2, mt3, mt4 = st.tabs(["🏠 Tổng quan Lab", "🔬 Máy móc & Lịch", "🏆 Bảng vinh danh", "📚 Tài liệu & Link"])
 
-    # --- TAB 1: TỔNG QUAN LAB ---
+    # --- TAB 1: TỔNG QUAN LAB (Thành viên + Avatar) ---
     with mt1:
         st.markdown("### 🌐 Không gian làm việc")
         st.write("Nhấn vào tên thành viên để xem lịch trình phối hợp nhóm.")
@@ -360,6 +381,11 @@ else:
                 mem_name = row['HoTen']
                 mem_status = row.get('TrangThai', '⚪ Đã về')
                 if not mem_status: mem_status = "⚪ Đã về"
+                
+                # Logic lấy URL Avatar cho từng card
+                mem_avatar_url = row.get('Avatar', '')
+                if not mem_avatar_url or str(mem_avatar_url).strip() == "":
+                    mem_avatar_url = f"https://ui-avatars.com/api/?name={urllib.parse.quote(mem_name)}&background=random&color=fff&size=128&bold=true"
                 
                 rank_str = ""
                 if not df_rank.empty and mem_name in df_rank['Thành viên'].values:
@@ -376,10 +402,14 @@ else:
                     elif "Ở Lab" in mem_status: bg_color, border_color, text_color, icon = "#e6f4ea", "#c3e6cb", "#155724", "🟢"
                     elif "Đang bận" in mem_status: bg_color, border_color, text_color, icon = "#fff8e1", "#ffeeba", "#856404", "🟡"
 
+                    # HTML/CSS vẽ thẻ Card có chứa Avatar tròn và icon trạng thái góc dưới
                     st.markdown(f"""
                     <div style='background-color: {bg_color}; color: {text_color}; padding: 15px; border-radius: 12px 12px 0 0; text-align: center; border: 1px solid {border_color}; border-bottom: none;'>
-                        <h2 style='margin: 0;'>{icon}</h2>
-                        <h5 style='margin: 5px 0;'>{mem_name}</h5>
+                        <div style='position: relative; display: inline-block; margin-bottom: 10px;'>
+                            <img src='{mem_avatar_url}' style='width: 70px; height: 70px; border-radius: 50%; border: 3px solid white; object-fit: cover; box-shadow: 0 4px 6px rgba(0,0,0,0.1);'>
+                            <div style='position: absolute; bottom: 0; right: -5px; font-size: 16px; background: white; border-radius: 50%; padding: 2px; width: 24px; height: 24px; display: flex; align-items: center; justify-content: center; box-shadow: 0 2px 4px rgba(0,0,0,0.2);'>{icon}</div>
+                        </div>
+                        <h5 style='margin: 0px 0 5px 0;'>{mem_name}</h5>
                         <p style='margin: 0; font-size: 12px; font-weight:bold; color: #555;'>{rank_str}</p>
                     </div>
                     """, unsafe_allow_html=True)
@@ -535,7 +565,7 @@ else:
         else:
             st.info("Chưa có ai check-in tuần này.")
 
-    # --- TAB 4: TÀI LIÊU & LINK (MỚI) ---
+    # --- TAB 4: TÀI LIÊU & LINK ---
     with mt4:
         st.markdown("### 📚 Kho Tài Liệu & Ứng Dụng chung")
         st.write("Nơi lưu trữ các quy trình vận hành máy (SOP), link tải phần mềm LabSpec, hoặc bài báo tham khảo.")
@@ -557,7 +587,6 @@ else:
         if df_tailieu.empty:
             st.info("Kho tài liệu hiện đang trống.")
         else:
-            # Hiển thị tài liệu theo dạng thẻ gọn gàng
             for _, r in df_tailieu.iloc[::-1].iterrows():
                 st.markdown(f"""
                 <div style='padding: 15px; border-radius: 10px; border: 1px solid #e0e0e0; background: white; margin-bottom: 10px;'>
