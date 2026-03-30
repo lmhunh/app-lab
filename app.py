@@ -171,7 +171,6 @@ else:
     days_7 = [(today + timedelta(days=i)).strftime("%d/%m/%Y") for i in range(7)]
     time_options = [f"{h:02d}:{m:02d}" for h in range(24) for m in (0, 15, 30, 45)]
     
-    # --- TỰ ĐỘNG TẠO CỘT TrangThai, Avatar, CapDo NẾU CHƯA CÓ ---
     if not df_tk.empty:
         missing_cols = []
         if "TrangThai" not in df_tk.columns: missing_cols.append("TrangThai")
@@ -259,12 +258,15 @@ else:
             encoded_name = urllib.parse.quote(st.session_state['ho_ten'])
             my_avatar_url = f"https://ui-avatars.com/api/?name={encoded_name}&background=random&color=fff&size=128&bold=true"
 
+        # Khách (Cấp 3) sẽ không thấy số giờ cày cuốc
+        hours_display = f"<p style='color: #888; font-size: 14px; margin-top: 0px;'>⏱️ Giờ Lab tuần này: <b>{my_current_hours}h</b></p>" if my_role <= 2 else ""
+
         st.markdown(f"""
         <div style='text-align: center; margin-bottom: 10px;'>
             <img src='{my_avatar_url}' style='width: 90px; height: 90px; border-radius: 50%; border: 3px solid #ff69b4; box-shadow: 0 4px 10px rgba(0,0,0,0.15); object-fit: cover;'>
             <h3 style='margin-top: 10px; margin-bottom: 0;'>{st.session_state['ho_ten']}</h3>
             <p style='color: #666; font-size: 13px; font-weight: bold; margin-top: 2px; margin-bottom: 5px;'>{role_badge}</p>
-            <p style='color: #888; font-size: 14px; margin-top: 0px;'>⏱️ Giờ Lab tuần này: <b>{my_current_hours}h</b></p>
+            {hours_display}
         </div>
         """, unsafe_allow_html=True)
         st.markdown("---")
@@ -343,7 +345,6 @@ else:
                         valid_bookings.append(r)
                         ca = str(r['Ca làm việc'])
                         
-                        # Admin (Level 1) có thể hủy lịch của BẤT KỲ AI. Sinh viên (Level 2,3) chỉ hủy lịch của mình.
                         is_my_booking = (mem_name == st.session_state['ho_ten'])
                         is_admin = (my_role == 1)
                         
@@ -365,7 +366,6 @@ else:
                     st.write("**🗑️ Thao tác Hủy lịch**")
                     selected_cancel = st.selectbox("Chọn lịch:", cancel_options, label_visibility="collapsed")
                     if st.form_submit_button("Xác nhận Hủy", type="primary", use_container_width=True):
-                        # Bóc tách chuỗi định dạng "[Ngày] Thiết bị | Ca làm việc (Người dùng)"
                         day = selected_cancel.split("] ")[0].replace("[", "")
                         dev_ca_user = selected_cancel.split("] ")[1]
                         dev = dev_ca_user.split(" | ")[0]
@@ -391,57 +391,71 @@ else:
         if status == 'Sẵn sàng': return f"🟢 {dev_name} (Rảnh){note}"
         else: return f"🔴 {dev_name} (Bận: {user.split()[-1] if user else ''}){note}"
 
-    # ================= ĐIỀU HƯỚNG TABS CHÍNH =================
-    mt1, mt2, mt3, mt4 = st.tabs(["🏠 Tổng quan Lab", "🔬 Máy móc & Lịch", "🏆 Bảng vinh danh", "📚 Tài liệu & Link"])
+    # ================= ĐIỀU HƯỚNG TABS ĐỘNG THEO PHÂN QUYỀN =================
+    if my_role <= 2:
+        # Cấp 1 & Cấp 2: Đầy đủ các Tab
+        main_tabs = st.tabs(["🏠 Tổng quan Lab", "🔬 Máy móc & Lịch", "🏆 Bảng vinh danh", "📚 Tài liệu & Link"])
+        tab_tong_quan = main_tabs[0]
+        tab_may_moc = main_tabs[1]
+        tab_vinh_danh = main_tabs[2]
+        tab_tai_lieu = main_tabs[3]
+    else:
+        # Cấp 3 (Khách): Chỉ hiện Tab thao tác máy
+        main_tabs = st.tabs(["🔬 Máy móc & Lịch"])
+        tab_tong_quan = None
+        tab_may_moc = main_tabs[0]
+        tab_vinh_danh = None
+        tab_tai_lieu = None
 
     # --- TAB 1: TỔNG QUAN LAB ---
-    with mt1:
-        st.markdown("### 🌐 Không gian làm việc")
-        st.write("Nhấn vào thẻ thành viên để xem lịch trình cá nhân hoặc Hủy lịch nếu bạn có quyền.")
-        
-        if "TrangThai" not in df_tk.columns: st.warning("Đang đồng bộ...")
-        else:
-            cols = st.columns(4) 
-            for idx, row in df_tk.iterrows():
-                mem_name = row['HoTen']
-                mem_status = row.get('TrangThai', '⚪ Đã về')
-                if not mem_status: mem_status = "⚪ Đã về"
-                
-                mem_avatar_url = row.get('Avatar', '')
-                if not mem_avatar_url or str(mem_avatar_url).strip() == "":
-                    mem_avatar_url = f"https://ui-avatars.com/api/?name={urllib.parse.quote(mem_name)}&background=random&color=fff&size=128&bold=true"
-                
-                rank_str = ""
-                if not df_rank.empty and mem_name in df_rank['Thành viên'].values:
-                    rank_idx = df_rank[df_rank['Thành viên'] == mem_name].index[0]
-                    hours = df_rank.iloc[rank_idx]['Tổng giờ']
-                    if rank_idx == 0: rank_str = f"🥇 Top 1 ({hours}h)"
-                    elif rank_idx == 1: rank_str = f"🥈 Top 2 ({hours}h)"
-                    elif rank_idx == 2: rank_str = f"🥉 Top 3 ({hours}h)"
-                    else: rank_str = f"🏅 Top {rank_idx + 1} ({hours}h)"
-                
-                with cols[idx % 4]:
-                    bg_color, border_color, text_color, icon = "#f8f9fa", "#dee2e6", "#6c757d", "⚪"
-                    if mem_status == "CẦN TRỢ GIÚP": bg_color, border_color, text_color, icon = "#ff4b4b", "darkred", "white", "🚨"
-                    elif "Ở Lab" in mem_status: bg_color, border_color, text_color, icon = "#e6f4ea", "#c3e6cb", "#155724", "🟢"
-                    elif "Đang bận" in mem_status: bg_color, border_color, text_color, icon = "#fff8e1", "#ffeeba", "#856404", "🟡"
-
-                    st.markdown(f"""
-                    <div style='background-color: {bg_color}; color: {text_color}; padding: 15px; border-radius: 12px 12px 0 0; text-align: center; border: 1px solid {border_color}; border-bottom: none;'>
-                        <div style='position: relative; display: inline-block; margin-bottom: 10px;'>
-                            <img src='{mem_avatar_url}' style='width: 70px; height: 70px; border-radius: 50%; border: 3px solid white; object-fit: cover; box-shadow: 0 4px 6px rgba(0,0,0,0.1);'>
-                            <div style='position: absolute; bottom: 0; right: -5px; font-size: 16px; background: white; border-radius: 50%; padding: 2px; width: 24px; height: 24px; display: flex; align-items: center; justify-content: center; box-shadow: 0 2px 4px rgba(0,0,0,0.2);'>{icon}</div>
-                        </div>
-                        <h5 style='margin: 0px 0 5px 0;'>{mem_name}</h5>
-                        <p style='margin: 0; font-size: 12px; font-weight:bold; color: #555;'>{rank_str}</p>
-                    </div>
-                    """, unsafe_allow_html=True)
+    if tab_tong_quan is not None:
+        with tab_tong_quan:
+            st.markdown("### 🌐 Không gian làm việc")
+            st.write("Nhấn vào thẻ thành viên để xem lịch trình cá nhân hoặc Hủy lịch nếu bạn có quyền.")
+            
+            if "TrangThai" not in df_tk.columns: st.warning("Đang đồng bộ...")
+            else:
+                cols = st.columns(4) 
+                for idx, row in df_tk.iterrows():
+                    mem_name = row['HoTen']
+                    mem_status = row.get('TrangThai', '⚪ Đã về')
+                    if not mem_status: mem_status = "⚪ Đã về"
                     
-                    if st.button("📅 Xem lịch", key=f"btn_pop_{idx}", use_container_width=True):
-                        show_member_schedule(mem_name)
+                    mem_avatar_url = row.get('Avatar', '')
+                    if not mem_avatar_url or str(mem_avatar_url).strip() == "":
+                        mem_avatar_url = f"https://ui-avatars.com/api/?name={urllib.parse.quote(mem_name)}&background=random&color=fff&size=128&bold=true"
+                    
+                    rank_str = ""
+                    if not df_rank.empty and mem_name in df_rank['Thành viên'].values:
+                        rank_idx = df_rank[df_rank['Thành viên'] == mem_name].index[0]
+                        hours = df_rank.iloc[rank_idx]['Tổng giờ']
+                        if rank_idx == 0: rank_str = f"🥇 Top 1 ({hours}h)"
+                        elif rank_idx == 1: rank_str = f"🥈 Top 2 ({hours}h)"
+                        elif rank_idx == 2: rank_str = f"🥉 Top 3 ({hours}h)"
+                        else: rank_str = f"🏅 Top {rank_idx + 1} ({hours}h)"
+                    
+                    with cols[idx % 4]:
+                        bg_color, border_color, text_color, icon = "#f8f9fa", "#dee2e6", "#6c757d", "⚪"
+                        if mem_status == "CẦN TRỢ GIÚP": bg_color, border_color, text_color, icon = "#ff4b4b", "darkred", "white", "🚨"
+                        elif "Ở Lab" in mem_status: bg_color, border_color, text_color, icon = "#e6f4ea", "#c3e6cb", "#155724", "🟢"
+                        elif "Đang bận" in mem_status: bg_color, border_color, text_color, icon = "#fff8e1", "#ffeeba", "#856404", "🟡"
+
+                        st.markdown(f"""
+                        <div style='background-color: {bg_color}; color: {text_color}; padding: 15px; border-radius: 12px 12px 0 0; text-align: center; border: 1px solid {border_color}; border-bottom: none;'>
+                            <div style='position: relative; display: inline-block; margin-bottom: 10px;'>
+                                <img src='{mem_avatar_url}' style='width: 70px; height: 70px; border-radius: 50%; border: 3px solid white; object-fit: cover; box-shadow: 0 4px 6px rgba(0,0,0,0.1);'>
+                                <div style='position: absolute; bottom: 0; right: -5px; font-size: 16px; background: white; border-radius: 50%; padding: 2px; width: 24px; height: 24px; display: flex; align-items: center; justify-content: center; box-shadow: 0 2px 4px rgba(0,0,0,0.2);'>{icon}</div>
+                            </div>
+                            <h5 style='margin: 0px 0 5px 0;'>{mem_name}</h5>
+                            <p style='margin: 0; font-size: 12px; font-weight:bold; color: #555;'>{rank_str}</p>
+                        </div>
+                        """, unsafe_allow_html=True)
+                        
+                        if st.button("📅 Xem lịch", key=f"btn_pop_{idx}", use_container_width=True):
+                            show_member_schedule(mem_name)
 
     # --- TAB 2: MÁY MÓC & LỊCH TRÌNH ---
-    with mt2:
+    with tab_may_moc:
         sub1, sub2, sub3 = st.tabs(["📝 Đăng ký mượn", "🔄 Trả thiết bị", "🕒 Lịch sử mượn"])
         
         with sub1:
@@ -569,32 +583,32 @@ else:
             if not df_h.empty: st.dataframe(df_h.iloc[::-1], use_container_width=True, hide_index=True)
 
     # --- TAB 3: BẢNG VINH DANH ---
-    with mt3:
-        st.markdown("### 🏆 Bảng xếp hạng Tuần")
-        st.write("Dựa trên thời gian check-in thực tế. Cố gắng lọt Top 3 nhé!")
-        if not df_rank.empty:
-            stats = df_rank.copy()
-            c1, c2, c3 = st.columns(3)
-            if len(stats) >= 1:
-                with c2: st.markdown(f"<div style='text-align:center; padding:20px; background:#fff8e1; border-radius:15px; border: 2px solid #ffc107; box-shadow: 0 8px 15px rgba(255,193,7,0.2); transform: scale(1.05);'><h1 style='font-size: 60px; margin:0;'>🥇</h1><h3 style='margin: 10px 0; color: #b78100;'>{stats.iloc[0]['Thành viên']}</h3><p style='margin:0; font-size:20px; font-weight:bold;'>{stats.iloc[0]['Tổng giờ']}h</p></div>", unsafe_allow_html=True)
-            if len(stats) >= 2:
-                with c1: st.markdown(f"<div style='text-align:center; padding:20px; background:#f8f9fa; border-radius:15px; border: 2px solid #adb5bd; margin-top: 40px;'><h1 style='font-size: 50px; margin:0;'>🥈</h1><h4 style='margin: 10px 0; color: #495057;'>{stats.iloc[1]['Thành viên']}</h4><p style='margin:0; font-size:18px; font-weight:bold;'>{stats.iloc[1]['Tổng giờ']}h</p></div>", unsafe_allow_html=True)
-            if len(stats) >= 3:
-                with c3: st.markdown(f"<div style='text-align:center; padding:20px; background:#fdf3eb; border-radius:15px; border: 2px solid #d99a6c; margin-top: 50px;'><h1 style='font-size: 45px; margin:0;'>🥉</h1><h4 style='margin: 10px 0; color: #9c5c2d;'>{stats.iloc[2]['Thành viên']}</h4><p style='margin:0; font-size:18px; font-weight:bold;'>{stats.iloc[2]['Tổng giờ']}h</p></div>", unsafe_allow_html=True)
-            
-            st.write("")
-            stats.index = stats.index + 1
-            st.dataframe(stats, use_container_width=True)
-        else:
-            st.info("Chưa có ai check-in tuần này.")
+    if tab_vinh_danh is not None:
+        with tab_vinh_danh:
+            st.markdown("### 🏆 Bảng xếp hạng Tuần")
+            st.write("Dựa trên thời gian check-in thực tế. Cố gắng lọt Top 3 nhé!")
+            if not df_rank.empty:
+                stats = df_rank.copy()
+                c1, c2, c3 = st.columns(3)
+                if len(stats) >= 1:
+                    with c2: st.markdown(f"<div style='text-align:center; padding:20px; background:#fff8e1; border-radius:15px; border: 2px solid #ffc107; box-shadow: 0 8px 15px rgba(255,193,7,0.2); transform: scale(1.05);'><h1 style='font-size: 60px; margin:0;'>🥇</h1><h3 style='margin: 10px 0; color: #b78100;'>{stats.iloc[0]['Thành viên']}</h3><p style='margin:0; font-size:20px; font-weight:bold;'>{stats.iloc[0]['Tổng giờ']}h</p></div>", unsafe_allow_html=True)
+                if len(stats) >= 2:
+                    with c1: st.markdown(f"<div style='text-align:center; padding:20px; background:#f8f9fa; border-radius:15px; border: 2px solid #adb5bd; margin-top: 40px;'><h1 style='font-size: 50px; margin:0;'>🥈</h1><h4 style='margin: 10px 0; color: #495057;'>{stats.iloc[1]['Thành viên']}</h4><p style='margin:0; font-size:18px; font-weight:bold;'>{stats.iloc[1]['Tổng giờ']}h</p></div>", unsafe_allow_html=True)
+                if len(stats) >= 3:
+                    with c3: st.markdown(f"<div style='text-align:center; padding:20px; background:#fdf3eb; border-radius:15px; border: 2px solid #d99a6c; margin-top: 50px;'><h1 style='font-size: 45px; margin:0;'>🥉</h1><h4 style='margin: 10px 0; color: #9c5c2d;'>{stats.iloc[2]['Thành viên']}</h4><p style='margin:0; font-size:18px; font-weight:bold;'>{stats.iloc[2]['Tổng giờ']}h</p></div>", unsafe_allow_html=True)
+                
+                st.write("")
+                stats.index = stats.index + 1
+                st.dataframe(stats, use_container_width=True)
+            else:
+                st.info("Chưa có ai check-in tuần này.")
 
     # --- TAB 4: TÀI LIÊU & LINK ---
-    with mt4:
-        st.markdown("### 📚 Kho Tài Liệu & Ứng Dụng chung")
-        st.write("Nơi lưu trữ các quy trình vận hành máy (SOP), link phần mềm LabSpec, bài báo nghiên cứu Cu2O, ZnO...")
-        
-        # Admin và Nội bộ mới được đăng tài liệu
-        if my_role <= 2:
+    if tab_tai_lieu is not None:
+        with tab_tai_lieu:
+            st.markdown("### 📚 Kho Tài Liệu & Ứng Dụng chung")
+            st.write("Nơi lưu trữ các quy trình vận hành máy (SOP), link phần mềm LabSpec, bài báo nghiên cứu Cu2O, ZnO...")
+            
             with st.expander("➕ Thêm Tài liệu / Link mới", expanded=False):
                 with st.form("add_doc_form"):
                     doc_name = st.text_input("Tên tài liệu / Ứng dụng (VD: Hướng dẫn LabSpec)")
@@ -606,18 +620,16 @@ else:
                             load_data.clear(); st.rerun()
                         else:
                             st.error("Vui lòng nhập đủ thông tin.")
-        else:
-            st.info("🔒 Khách tham quan chỉ có quyền xem tài liệu, không được phép đăng mới.")
                             
-        st.markdown("---")
-        
-        if df_tailieu.empty:
-            st.info("Kho tài liệu hiện đang trống.")
-        else:
-            for _, r in df_tailieu.iloc[::-1].iterrows():
-                st.markdown(f"""
-                <div style='padding: 15px; border-radius: 10px; border: 1px solid #e0e0e0; background: white; margin-bottom: 10px;'>
-                    <h5 style='margin: 0;'>🔗 <a href='{r['Link']}' target='_blank' style='text-decoration:none; color: #1a73e8;'>{r['Tên tài liệu']}</a></h5>
-                    <p style='color:#777; font-size: 13px; margin: 5px 0 0 0;'>Tải lên bởi: <b>{r['Người đăng']}</b> ({r['Thời gian']})</p>
-                </div>
-                """, unsafe_allow_html=True)
+            st.markdown("---")
+            
+            if df_tailieu.empty:
+                st.info("Kho tài liệu hiện đang trống.")
+            else:
+                for _, r in df_tailieu.iloc[::-1].iterrows():
+                    st.markdown(f"""
+                    <div style='padding: 15px; border-radius: 10px; border: 1px solid #e0e0e0; background: white; margin-bottom: 10px;'>
+                        <h5 style='margin: 0;'>🔗 <a href='{r['Link']}' target='_blank' style='text-decoration:none; color: #1a73e8;'>{r['Tên tài liệu']}</a></h5>
+                        <p style='color:#777; font-size: 13px; margin: 5px 0 0 0;'>Tải lên bởi: <b>{r['Người đăng']}</b> ({r['Thời gian']})</p>
+                    </div>
+                    """, unsafe_allow_html=True)
