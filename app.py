@@ -7,23 +7,17 @@ import time
 # ==========================================
 # 1. CẤU HÌNH & KẾT NỐI (GMT+7)
 # ==========================================
-# Sửa tiêu đề trang hiển thị trên tab trình duyệt
-st.set_page_config(page_title="Lab 109", page_icon="🔬", layout="wide", initial_sidebar_state="expanded")
+st.set_page_config(page_title="Lab 109 - Quản lý Lab", page_icon="🔬", layout="wide", initial_sidebar_state="expanded")
 
 VN_TZ = timezone(timedelta(hours=7))
 
-# Custom CSS cho phong cách Gen Z: Bo tròn, đổ bóng mềm, font chữ hiện đại, tiêu đề màu hồng
 st.markdown("""
     <style>
     .stButton>button { border-radius: 12px; transition: all 0.3s ease; font-weight: bold; }
     .stButton>button:hover { transform: translateY(-2px); box-shadow: 0 4px 10px rgba(0,0,0,0.1); }
     .css-1d391kg { padding-top: 1rem; }
     div[data-testid="stExpander"] { border-radius: 12px; border: 1px solid #e0e0e0; box-shadow: 0 2px 5px rgba(0,0,0,0.05); }
-    /* Đổi màu tiêu đề chính */
-    h1 {
-        text-align: center;
-        color: #FF8DA1; /* Màu hồng */
-    }
+    h1 { text-align: center; color: #ff69b4; }
     </style>
 """, unsafe_allow_html=True)
 
@@ -115,15 +109,12 @@ if 'logged_in' not in st.session_state:
 if not st.session_state['logged_in']:
     col1, col2, col3 = st.columns([1, 2, 1])
     with col2:
-        # Đã đổi tên thành Lab 109 và màu sang hồng nhờ CSS ở trên
         st.markdown("<h1 style='text-align: center;'>🔬 Lab 109</h1>", unsafe_allow_html=True)
-        
-        # Cập nhật Slogan mới, viết thành 2 dòng và thêm icon cờ đan nhau
         st.markdown("""
             <p style='text-align: center; color: #666; font-size: 1.1em;'>
-                Mỗi ngày đến Lab là một ngày vui 🐽
+                Mỗi ngày đến Lab là một ngày vui. 🇻🇳
                 <br>
-                Sẽ vui hơn nếu chúng ta làm việc chăm chỉ
+                Cùng nhau nỗ lực, gặt hái thành công.
             </p>
         """, unsafe_allow_html=True)
         
@@ -158,16 +149,21 @@ else:
         sheet_taikhoan.update_cell(1, num_cols + 1, "TrangThai")
         load_data.clear(); df_tk = load_data("TaiKhoan")
 
-    # --- TÍNH TOÁN BẢNG XẾP HẠNG NGẦM ---
+    # --- TÍNH TOÁN BẢNG XẾP HẠNG NGẦM (FIXED LỖI 0 GIỜ) ---
     df_rank = pd.DataFrame(columns=['Thành viên', 'Tổng giờ'])
     my_current_hours = 0.0
     if not df_h.empty and len(df_h.columns) >= 3:
         col_time, col_user, col_action = df_h.columns[0], df_h.columns[1], df_h.columns[2]
         df_h_temp = df_h.copy()
-        df_h_temp['Datetime'] = pd.to_datetime(df_h_temp[col_time], format="%d/%m/%Y %H:%M:%S", errors='coerce')
+        
+        # Ép kiểu Datetime thông minh hơn, chống lỗi format của Google Sheets
+        df_h_temp['Datetime'] = pd.to_datetime(df_h_temp[col_time], dayfirst=True, errors='coerce')
+        if df_h_temp['Datetime'].isna().all():
+            df_h_temp['Datetime'] = pd.to_datetime(df_h_temp[col_time], format="%d/%m/%Y %H:%M:%S", errors='coerce')
+            
         now_naive = get_now().replace(tzinfo=None)
         start_of_week = now_naive - timedelta(days=now_naive.weekday())
-        start_of_week = start_of_week.replace(hour=0, minute=0, second=0, microsecond=0, tzinfo=None)
+        start_of_week = start_of_week.replace(hour=0, minute=0, second=0, microsecond=0)
         
         df_week = df_h_temp[(df_h_temp['Datetime'] >= start_of_week) & (df_h_temp[col_user] != '🤖 Hệ thống')]
         user_stats = []
@@ -175,15 +171,24 @@ else:
             users = df_week[col_user].unique()
             for u in users:
                 u_logs = df_week[(df_week[col_user] == u) & (df_week[col_action].str.contains("Check-in|Check-out", na=False))].sort_values('Datetime')
+                
+                # Nếu người dùng có thao tác check-in/out, chắc chắn họ sẽ được lên bảng
+                if u_logs.empty: continue 
+                
                 total_secs, last_in = 0, None
                 for _, r in u_logs.iterrows():
                     action = str(r[col_action])
                     if "Check-in" in action: last_in = r['Datetime']
                     elif "Check-out" in action and last_in is not None:
                         total_secs += (r['Datetime'] - last_in).total_seconds(); last_in = None 
-                if last_in is not None: total_secs += (now_naive - last_in).total_seconds()
-                total_hours = round(total_secs / 3600, 1)
-                if total_hours > 0: user_stats.append({'Thành viên': u, 'Tổng giờ': total_hours})
+                
+                # Live Ticking: Đang ở Lab thì cộng dồn số giây từ lúc check-in đến hiện tại
+                if last_in is not None: 
+                    total_secs += max(0, (now_naive - last_in).total_seconds())
+                
+                # Lấy 2 số thập phân để 0.01h (vừa check-in) vẫn hiển thị
+                total_hours = round(total_secs / 3600, 2) 
+                user_stats.append({'Thành viên': u, 'Tổng giờ': total_hours})
         
         if user_stats:
             df_rank = pd.DataFrame(user_stats).sort_values(by='Tổng giờ', ascending=False).reset_index(drop=True)
@@ -231,17 +236,15 @@ else:
     # ---------------- NỘI DUNG CHÍNH (MAIN UI) ----------------
     auto_return_devices()
     
-    # Tiêu đề chính và slogan (đã cập nhật)
     st.markdown("<h1 style='text-align: center;'>🔬 Lab 109</h1>", unsafe_allow_html=True)
     st.markdown("""
         <p style='text-align: center; color: #666; font-size: 1.1em;'>
-            Mỗi ngày đến Lab là một ngày vui. ⚔️
+            Mỗi ngày đến Lab là một ngày vui. 🇻🇳
             <br>
             Cùng nhau nỗ lực, gặt hái thành công.
         </p>
     """, unsafe_allow_html=True)
 
-    # Báo động toàn cầu (Hiển thị đầu trang)
     if "CẦN TRỢ GIÚP" in df_tk['TrangThai'].values:
         nguoi_can_giup = df_tk[df_tk['TrangThai'] == 'CẦN TRỢ GIÚP']['HoTen'].tolist()
         st.markdown(f"""
@@ -251,7 +254,6 @@ else:
         <style>@keyframes blinker {{ 50% {{ opacity: 0.7; }} }}</style>
         """, unsafe_allow_html=True)
 
-    # --- TẠO POPUP KHI BẤM VÀO THẺ THÀNH VIÊN ---
     @st.dialog("📅 Lịch trình cá nhân")
     def show_member_schedule(mem_name):
         st.write(f"Danh sách lịch mượn máy của **{mem_name}**:")
@@ -343,7 +345,6 @@ else:
 
     # --- TAB 2: MÁY MÓC & LỊCH TRÌNH ---
     with mt2:
-        # Sử dụng sub-tabs để chia nhỏ hành động, tối ưu không gian rộng
         sub1, sub2, sub3 = st.tabs(["📝 Đăng ký mượn", "🔄 Trả thiết bị", "🕒 Lịch sử mượn"])
         
         with sub1:
