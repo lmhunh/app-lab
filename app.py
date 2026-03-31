@@ -4,6 +4,7 @@ import gspread
 from datetime import datetime, timedelta, timezone, time as dt_time
 import time
 import urllib.parse 
+import json # Thêm thư viện để xử lý dữ liệu Bảng Vote
 
 # ==========================================
 # 1. CẤU HÌNH & KẾT NỐI (GMT+7)
@@ -55,7 +56,8 @@ def init_google_sheets():
             "LichSu": sh.worksheet("LichSu"),
             "LichTuan": sh.worksheet("LichTuan"),
             "Chat": get_or_create_sheet(sh, "Chat", ["Thời gian", "Người gửi", "Nội dung"]),
-            "TaiLieu": get_or_create_sheet(sh, "TaiLieu", ["Thời gian", "Người đăng", "Tên tài liệu", "Link"])
+            "TaiLieu": get_or_create_sheet(sh, "TaiLieu", ["Thời gian", "Người đăng", "Tên tài liệu", "Link"]),
+            "ThongBao": get_or_create_sheet(sh, "ThongBao", ["ID", "Thời gian", "Người đăng", "Loại", "Nội dung", "Lựa chọn", "Bình chọn"]) # Bảng mới cho mục Vote
         }
     except Exception as e:
         st.error(f"❌ Lỗi kết nối Google Sheets: {e}")
@@ -68,6 +70,7 @@ sheet_lichsu = sheets["LichSu"]
 sheet_lichtuan = sheets["LichTuan"]
 sheet_chat = sheets["Chat"]
 sheet_tailieu = sheets["TaiLieu"]
+sheet_thongbao = sheets["ThongBao"]
 
 @st.cache_data(ttl=10, show_spinner=False)
 def load_data(sheet_name):
@@ -77,9 +80,10 @@ def load_data(sheet_name):
         return pd.DataFrame(sheets[sheet_name].get_all_records())
 
 # ==========================================
-# 2. ROBOT TỰ ĐỘNG THU HỒI
+# 2. ROBOT ĐỒNG BỘ TRẠNG THÁI (ĐÃ NÂNG CẤP)
 # ==========================================
-def auto_return_devices():
+def auto_update_devices():
+    """Tự động kiểm tra và cập nhật thiết bị thành Đang mượn hoặc Sẵn sàng theo giờ thực tế"""
     try:
         df_tb = load_data("ThietBi")
         df_lich = load_data("LichTuan")
@@ -87,31 +91,47 @@ def auto_return_devices():
         
         now = get_now()
         today_str = now.strftime("%d/%m/%Y")
+        curr_time = now.time()
+        
         df_today = df_lich[df_lich['Ngày'] == today_str]
-        if df_today.empty: return
         has_changes = False
 
-        for _, row in df_tb.iterrows():
-            if row.get('Trạng thái') == 'Đang mượn':
-                device = row.get('Tên')
-                user = row.get('Người sử dụng', '')
-                user_bookings = df_today[(df_today['Thiết bị'] == device) & (df_today['Người sử dụng'] == user)]
-                
-                if not user_bookings.empty:
-                    latest_end = None
-                    for ca in user_bookings['Ca làm việc']:
+        for idx, row in df_tb.iterrows():
+            device = str(row.get('Tên'))
+            current_status = str(row.get('Trạng thái'))
+            current_user = str(row.get('Người sử dụng', ''))
+            
+            # Tìm xem CÓ LỊCH NÀO ĐANG DIỄN RA NGAY LÚC NÀY không
+            active_booking = None
+            if not df_today.empty:
+                dev_bookings = df_today[df_today['Thiết bị'] == device]
+                for _, b_row in dev_bookings.iterrows():
+                    ca = str(b_row['Ca làm việc'])
+                    if " - " in ca:
                         try:
-                            _, e_str = ca.split(" - ")
-                            e_time = parse_time(e_str)
-                            if latest_end is None or e_time > latest_end: latest_end = e_time
+                            s_str, e_str = ca.split(" - ")
+                            s_time, e_time = parse_time(s_str), parse_time(e_str)
+                            if s_time and e_time and s_time <= curr_time <= e_time:
+                                active_booking = b_row
+                                break
                         except: pass
+            
+            row_num = int(idx) + 2 # Index bắt đầu từ 0, hàng dữ liệu đầu tiên trong sheets là 2
+            
+            if active_booking is not None:
+                # Nếu ĐANG TRONG GIỜ MƯỢN -> Ép thiết bị thành "Đang mượn"
+                expected_user = str(active_booking['Người sử dụng'])
+                if current_status != 'Đang mượn' or current_user != expected_user:
+                    sheet_thietbi.update_cell(row_num, 3, "Đang mượn")
+                    sheet_thietbi.update_cell(row_num, 4, expected_user)
+                    has_changes = True
+            else:
+                # Nếu KHÔNG TRONG GIỜ MƯỢN -> Ép thiết bị về "Sẵn sàng"
+                if current_status != 'Sẵn sàng':
+                    sheet_thietbi.update_cell(row_num, 3, "Sẵn sàng")
+                    sheet_thietbi.update_cell(row_num, 4, "")
+                    has_changes = True
                     
-                    if latest_end and now.time() >= latest_end:
-                        cell = sheet_thietbi.find(device)
-                        sheet_thietbi.update_cell(cell.row, 3, "Sẵn sàng")
-                        sheet_thietbi.update_cell(cell.row, 4, "")
-                        sheet_lichsu.append_row([now.strftime("%d/%m/%Y %H:%M:%S"), "🤖 Hệ thống", "Thu hồi tự động", device, "Hết giờ mượn"])
-                        has_changes = True
         if has_changes: load_data.clear() 
     except: pass
 
@@ -127,9 +147,9 @@ if not st.session_state['logged_in']:
         st.markdown("<h1 style='text-align: center;'>🔬 Lab 109</h1>", unsafe_allow_html=True)
         st.markdown("""
             <p style='text-align: center; color: #666; font-size: 1.1em;'>
-                Mỗi ngày đến Lab là một ngày vui 🇻🇳
+                Mỗi ngày đến Lab là một ngày vui. 🇻🇳
                 <br>
-                Sẽ vui hơn nếu chúng ta chăm chỉ
+                Cùng nhau nỗ lực, gặt hái thành công.
             </p>
         """, unsafe_allow_html=True)
         
@@ -162,6 +182,7 @@ else:
     df_h = load_data("LichSu")
     df_chat = load_data("Chat")
     df_tailieu = load_data("TaiLieu")
+    df_thongbao = load_data("ThongBao") # Tải data bảng tin
     all_devices = df_tb['Tên'].tolist() if not df_tb.empty else []
     
     my_role = st.session_state.get('cap_do', 2)
@@ -210,12 +231,9 @@ else:
                 total_secs, last_in = 0, None
                 for _, r in u_logs.iterrows():
                     action = str(r[col_action])
-                    # Đã Sửa: Cả Trạng Thái "Bận" và "Lab" đều được tính là Check-in, chỉ gán last_in nếu nó đang rỗng
-                    if "Check-in" in action: 
-                        if last_in is None: last_in = r['Datetime']
+                    if "Check-in" in action: last_in = r['Datetime']
                     elif "Check-out" in action and last_in is not None:
-                        total_secs += (r['Datetime'] - last_in).total_seconds()
-                        last_in = None 
+                        total_secs += (r['Datetime'] - last_in).total_seconds(); last_in = None 
                 
                 if last_in is not None: total_secs += max(0, (now_naive - last_in).total_seconds())
                 total_hours = round(total_secs / 3600, 2) 
@@ -226,7 +244,75 @@ else:
             if st.session_state['ho_ten'] in df_rank['Thành viên'].values:
                 my_current_hours = df_rank[df_rank['Thành viên'] == st.session_state['ho_ten']]['Tổng giờ'].iloc[0]
 
-    # --- KHUNG POPUP CHAT CHUNG LAB ---
+    # --- 1. KHUNG POPUP BẢNG TIN & KHẢO SÁT (MỚI) ---
+    @st.dialog("❗ Bảng Tin & Khảo Sát Lab")
+    def show_notice_board():
+        st.write("Cập nhật thông tin và vote các vấn đề quan trọng của Lab.")
+        
+        # Nếu là Quản lý (Level 1) thì hiển thị form đăng bài
+        if my_role == 1:
+            with st.expander("✍️ Đăng Thông báo / Khảo sát mới", expanded=False):
+                with st.form("create_notice"):
+                    n_type = st.radio("Loại:", ["Thông báo 📢", "Bầu chọn 📊"], horizontal=True)
+                    n_content = st.text_area("Nội dung (Bắt buộc):")
+                    n_opts = ""
+                    if "Bầu chọn" in n_type:
+                        n_opts = st.text_input("Các lựa chọn (Cách nhau bởi dấu phẩy, VD: Có, Không, Khác):")
+                        
+                    if st.form_submit_button("Đăng tải", type="primary"):
+                        if n_content.strip():
+                            nid = str(int(time.time()))
+                            t_str = get_now().strftime("%d/%m/%Y %H:%M")
+                            sheet_thongbao.append_row([nid, t_str, st.session_state['ho_ten'], n_type, n_content.strip(), n_opts.strip(), "{}"])
+                            load_data.clear(); st.rerun()
+                        else:
+                            st.error("Vui lòng nhập nội dung.")
+            st.markdown("---")
+            
+        # Hiển thị danh sách thông báo và khảo sát
+        if df_thongbao.empty:
+            st.info("Hiện chưa có thông báo nào từ Quản lý.")
+        else:
+            for idx, r in df_thongbao.iloc[::-1].iterrows():
+                st.markdown(f"**{r['Người đăng']}** • <span style='font-size:12px; color:#888;'>{r['Thời gian']}</span>", unsafe_allow_html=True)
+                
+                # Khung hiển thị nội dung
+                if "Thông báo" in str(r['Loại']):
+                    st.info(f"📢 {r['Nội dung']}")
+                else:
+                    st.warning(f"📊 **Khảo sát:** {r['Nội dung']}")
+                    
+                    # Tính toán và hiển thị Bầu chọn
+                    opts = [o.strip() for o in str(r['Lựa chọn']).split(",")] if r['Lựa chọn'] else []
+                    votes = {}
+                    try: votes = json.loads(str(r['Bình chọn']))
+                    except: pass
+                    
+                    my_vote = votes.get(st.session_state['ho_ten'], None)
+                    
+                    if my_vote:
+                        st.success(f"Bạn đã chọn: **{my_vote}**")
+                        # Hiển thị thanh tiến trình kết quả
+                        total_votes = len(votes) if len(votes) > 0 else 1
+                        for o in opts:
+                            count = sum(1 for v in votes.values() if v == o)
+                            pct = int((count / total_votes) * 100)
+                            st.markdown(f"<div style='font-size:13px;'>{o} ({count} phiếu)</div>", unsafe_allow_html=True)
+                            st.progress(pct)
+                    else:
+                        # Form cho phép người dùng vote
+                        with st.form(f"vote_form_{r['ID']}"):
+                            choice = st.radio("Chọn ý kiến của bạn:", opts)
+                            if st.form_submit_button("Chốt Bình chọn"):
+                                votes[st.session_state['ho_ten']] = choice
+                                row_num = int(idx) + 2
+                                sheet_thongbao.update_cell(row_num, 7, json.dumps(votes, ensure_ascii=False))
+                                load_data.clear(); st.rerun()
+                                
+                st.markdown("<hr style='margin: 15px 0;'>", unsafe_allow_html=True)
+
+
+    # --- 2. KHUNG POPUP CHAT CHUNG LAB ---
     @st.dialog("💬 Khung Chat Lab 109")
     def show_chat_popup():
         st.write("Cùng trò chuyện, nhắc lịch, hoặc hỗ trợ nhau nhé!")
@@ -250,6 +336,7 @@ else:
                 load_data.clear()
                 st.rerun()
 
+
     # ---------------- SIDEBAR: HỒ SƠ & TRẠNG THÁI NHANH ----------------
     with st.sidebar:
         my_avatar_url = ""
@@ -261,7 +348,6 @@ else:
             encoded_name = urllib.parse.quote(st.session_state['ho_ten'])
             my_avatar_url = f"https://ui-avatars.com/api/?name={encoded_name}&background=random&color=fff&size=128&bold=true"
 
-        # Khách (Cấp 3) sẽ không thấy số giờ cày cuốc
         hours_display = f"<p style='color: #888; font-size: 14px; margin-top: 0px;'>⏱️ Giờ Lab tuần này: <b>{my_current_hours}h</b></p>" if my_role <= 2 else ""
 
         st.markdown(f"""
@@ -274,17 +360,22 @@ else:
         """, unsafe_allow_html=True)
         st.markdown("---")
         
-        if my_role <= 2:
-            if st.button("💬 Chat chung phòng Lab", use_container_width=True):
-                show_chat_popup()
-            st.markdown("---")
+        # HIỂN THỊ NÚT BẢNG TIN VÀ CHAT TRÊN SIDEBAR
+        col_btn1, col_btn2 = st.columns(2)
+        with col_btn1:
+            if st.button("❗ Bảng tin", use_container_width=True): show_notice_board()
+        with col_btn2:
+            if my_role <= 2:
+                if st.button("💬 Chat", use_container_width=True): show_chat_popup()
+            else:
+                st.button("🚫 Chat", use_container_width=True, disabled=True, help="Khách không có quyền chat")
+        
+        st.markdown("---")
         
         def update_status(new_status):
             cell = sheet_taikhoan.find(str(st.session_state['tai_khoan']))
             col_idx = df_tk.columns.get_loc("TrangThai") + 1
             sheet_taikhoan.update_cell(cell.row, col_idx, new_status)
-            
-            # Đã Sửa: Ghi nhận cả "Lab" và "Bận" đều là các dạng Check-in để tính giờ xếp hạng
             if new_status == "🟢 Ở Lab": 
                 sheet_lichsu.append_row([get_now().strftime("%d/%m/%Y %H:%M:%S"), st.session_state['ho_ten'], "📍 Check-in Lab", "", ""])
             elif new_status == "🟡 Đang bận": 
@@ -320,14 +411,15 @@ else:
 
 
     # ---------------- NỘI DUNG CHÍNH (MAIN UI) ----------------
-    auto_return_devices()
+    # KÍCH HOẠT ROBOT ĐỒNG BỘ TRẠNG THÁI TỦ SẤY VÀ MÁY MÓC
+    auto_update_devices()
     
     st.markdown("<h1 style='text-align: center;'>🔬 Lab 109</h1>", unsafe_allow_html=True)
     st.markdown("""
         <p style='text-align: center; color: #666; font-size: 1.1em;'>
-            Mỗi ngày đến Lab là một ngày vui 🇻🇳
+            Mỗi ngày đến Lab là một ngày vui. 🇻🇳
             <br>
-            Sẽ vui hơn nếu chúng ta chăm chỉ
+            Cùng nhau nỗ lực, gặt hái thành công.
         </p>
     """, unsafe_allow_html=True)
 
