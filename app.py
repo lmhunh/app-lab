@@ -22,11 +22,11 @@ st.markdown("""
     h1 { text-align: center; color: #ff69b4; }
     div[data-testid="stChatMessage"] { background-color: #f1f8ff; border-radius: 15px; padding: 10px; margin-bottom: 10px; }
     
-    /* === CSS NÂNG CẤP: NÚT TRÒN NỔI (FAB) GÓC PHẢI MÀN HÌNH === */
+    /* === CSS NÂNG CẤP: NÚT TRÒN NỔI (FAB) BÊN MÉP PHẢI === */
     div.element-container:has(#btn-notice-anchor) + div.element-container button {
         position: fixed !important;
-        bottom: 30px !important;
-        right: 105px !important;
+        top: 45% !important;
+        right: 15px !important;
         width: 60px !important;
         height: 60px !important;
         border-radius: 50% !important;
@@ -41,8 +41,8 @@ st.markdown("""
 
     div.element-container:has(#btn-chat-anchor) + div.element-container button {
         position: fixed !important;
-        bottom: 30px !important;
-        right: 30px !important;
+        top: calc(45% + 75px) !important;
+        right: 15px !important;
         width: 60px !important;
         height: 60px !important;
         border-radius: 50% !important;
@@ -669,7 +669,7 @@ else:
                 my_list = df_tb[df_tb["Người sử dụng"] == st.session_state['ho_ten']]['Tên'].tolist()
                 if not my_list: st.info("Bạn hiện không mượn thiết bị nào.")
                 else:
-                    with st.form("return_form_tab_main"):
+                    with st.form("return_form_main"):
                         dev_ret = st.selectbox("Chọn thiết bị để trả:", my_list)
                         return_note = st.text_input("📝 Ghi chú (nếu máy có vấn đề):")
                         if st.form_submit_button("Xác nhận Trả máy", type="primary"):
@@ -753,12 +753,10 @@ else:
 
     # ================= MÃ KÍCH HOẠT FLOATING ACTION BUTTONS (FAB) =================
     if my_role <= 2:
-        # Bắn tọa độ điểm neo cho Nút Bảng tin
         st.markdown('<span id="btn-notice-anchor"></span>', unsafe_allow_html=True)
         if st.button("📢"):
             show_notice_board()
             
-        # Bắn tọa độ điểm neo cho Nút Chat
         st.markdown('<span id="btn-chat-anchor"></span>', unsafe_allow_html=True)
         if st.button("💬"):
             show_chat_popup()
