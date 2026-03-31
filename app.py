@@ -4,7 +4,7 @@ import gspread
 from datetime import datetime, timedelta, timezone, time as dt_time
 import time
 import urllib.parse 
-import json # Thêm thư viện để xử lý dữ liệu Bảng Vote
+import json 
 
 # ==========================================
 # 1. CẤU HÌNH & KẾT NỐI (GMT+7)
@@ -57,7 +57,7 @@ def init_google_sheets():
             "LichTuan": sh.worksheet("LichTuan"),
             "Chat": get_or_create_sheet(sh, "Chat", ["Thời gian", "Người gửi", "Nội dung"]),
             "TaiLieu": get_or_create_sheet(sh, "TaiLieu", ["Thời gian", "Người đăng", "Tên tài liệu", "Link"]),
-            "ThongBao": get_or_create_sheet(sh, "ThongBao", ["ID", "Thời gian", "Người đăng", "Loại", "Nội dung", "Lựa chọn", "Bình chọn"]) # Bảng mới cho mục Vote
+            "ThongBao": get_or_create_sheet(sh, "ThongBao", ["ID", "Thời gian", "Người đăng", "Loại", "Nội dung", "Lựa chọn", "Bình chọn"])
         }
     except Exception as e:
         st.error(f"❌ Lỗi kết nối Google Sheets: {e}")
@@ -80,10 +80,9 @@ def load_data(sheet_name):
         return pd.DataFrame(sheets[sheet_name].get_all_records())
 
 # ==========================================
-# 2. ROBOT ĐỒNG BỘ TRẠNG THÁI (ĐÃ NÂNG CẤP)
+# 2. ROBOT ĐỒNG BỘ TRẠNG THÁI
 # ==========================================
 def auto_update_devices():
-    """Tự động kiểm tra và cập nhật thiết bị thành Đang mượn hoặc Sẵn sàng theo giờ thực tế"""
     try:
         df_tb = load_data("ThietBi")
         df_lich = load_data("LichTuan")
@@ -101,7 +100,6 @@ def auto_update_devices():
             current_status = str(row.get('Trạng thái'))
             current_user = str(row.get('Người sử dụng', ''))
             
-            # Tìm xem CÓ LỊCH NÀO ĐANG DIỄN RA NGAY LÚC NÀY không
             active_booking = None
             if not df_today.empty:
                 dev_bookings = df_today[df_today['Thiết bị'] == device]
@@ -116,17 +114,15 @@ def auto_update_devices():
                                 break
                         except: pass
             
-            row_num = int(idx) + 2 # Index bắt đầu từ 0, hàng dữ liệu đầu tiên trong sheets là 2
+            row_num = int(idx) + 2
             
             if active_booking is not None:
-                # Nếu ĐANG TRONG GIỜ MƯỢN -> Ép thiết bị thành "Đang mượn"
                 expected_user = str(active_booking['Người sử dụng'])
                 if current_status != 'Đang mượn' or current_user != expected_user:
                     sheet_thietbi.update_cell(row_num, 3, "Đang mượn")
                     sheet_thietbi.update_cell(row_num, 4, expected_user)
                     has_changes = True
             else:
-                # Nếu KHÔNG TRONG GIỜ MƯỢN -> Ép thiết bị về "Sẵn sàng"
                 if current_status != 'Sẵn sàng':
                     sheet_thietbi.update_cell(row_num, 3, "Sẵn sàng")
                     sheet_thietbi.update_cell(row_num, 4, "")
@@ -147,9 +143,9 @@ if not st.session_state['logged_in']:
         st.markdown("<h1 style='text-align: center;'>🔬 Lab 109</h1>", unsafe_allow_html=True)
         st.markdown("""
             <p style='text-align: center; color: #666; font-size: 1.1em;'>
-                Mỗi ngày đến Lab là một ngày vui. 🇻🇳
+                Mỗi ngày lên lab là một ngày vui 🇻🇳
                 <br>
-                Cùng nhau nỗ lực, gặt hái thành công.
+                Sẽ vui hơn nếu chúng ta làm việc chăm chỉ
             </p>
         """, unsafe_allow_html=True)
         
@@ -182,7 +178,7 @@ else:
     df_h = load_data("LichSu")
     df_chat = load_data("Chat")
     df_tailieu = load_data("TaiLieu")
-    df_thongbao = load_data("ThongBao") # Tải data bảng tin
+    df_thongbao = load_data("ThongBao")
     all_devices = df_tb['Tên'].tolist() if not df_tb.empty else []
     
     my_role = st.session_state.get('cap_do', 2)
@@ -244,20 +240,18 @@ else:
             if st.session_state['ho_ten'] in df_rank['Thành viên'].values:
                 my_current_hours = df_rank[df_rank['Thành viên'] == st.session_state['ho_ten']]['Tổng giờ'].iloc[0]
 
-    # --- 1. KHUNG POPUP BẢNG TIN & KHẢO SÁT (MỚI) ---
-    @st.dialog("❗ Bảng Tin & Khảo Sát Lab")
+    # --- 1. KHUNG POPUP BẢNG TIN & KHẢO SÁT (ĐÃ NÂNG CẤP) ---
+    @st.dialog("❗ Bảng Tin & Khảo Sát Lab", width="large")
     def show_notice_board():
         st.write("Cập nhật thông tin và vote các vấn đề quan trọng của Lab.")
         
-        # Nếu là Quản lý (Level 1) thì hiển thị form đăng bài
-        if my_role == 1:
+        # Chỉ Admin (Level 1) hoặc Nội bộ (Level 2) mới được phép tạo bài
+        if my_role <= 2:
             with st.expander("✍️ Đăng Thông báo / Khảo sát mới", expanded=False):
                 with st.form("create_notice"):
                     n_type = st.radio("Loại:", ["Thông báo 📢", "Bầu chọn 📊"], horizontal=True)
                     n_content = st.text_area("Nội dung (Bắt buộc):")
-                    n_opts = ""
-                    if "Bầu chọn" in n_type:
-                        n_opts = st.text_input("Các lựa chọn (Cách nhau bởi dấu phẩy, VD: Có, Không, Khác):")
+                    n_opts = st.text_input("Các lựa chọn nếu là Bầu chọn (Cách nhau bởi dấu phẩy, VD: Có, Không):")
                         
                     if st.form_submit_button("Đăng tải", type="primary"):
                         if n_content.strip():
@@ -269,20 +263,28 @@ else:
                             st.error("Vui lòng nhập nội dung.")
             st.markdown("---")
             
-        # Hiển thị danh sách thông báo và khảo sát
         if df_thongbao.empty:
-            st.info("Hiện chưa có thông báo nào từ Quản lý.")
+            st.info("Hiện chưa có thông báo nào.")
         else:
             for idx, r in df_thongbao.iloc[::-1].iterrows():
-                st.markdown(f"**{r['Người đăng']}** • <span style='font-size:12px; color:#888;'>{r['Thời gian']}</span>", unsafe_allow_html=True)
+                row_num = int(idx) + 2
                 
-                # Khung hiển thị nội dung
+                # Nút Xóa bài viết cho Admin hoặc Chính chủ
+                col_h1, col_h2 = st.columns([4, 1])
+                with col_h1:
+                    st.markdown(f"**{r['Người đăng']}** • <span style='font-size:12px; color:#888;'>{r['Thời gian']}</span>", unsafe_allow_html=True)
+                with col_h2:
+                    if my_role == 1 or r['Người đăng'] == st.session_state['ho_ten']:
+                        if st.button("🗑️ Xóa", key=f"del_{r['ID']}", help="Xóa bài viết này"):
+                            sheet_thongbao.delete_rows(row_num)
+                            load_data.clear(); st.rerun()
+                
+                # Hiển thị nội dung bài viết
                 if "Thông báo" in str(r['Loại']):
                     st.info(f"📢 {r['Nội dung']}")
                 else:
                     st.warning(f"📊 **Khảo sát:** {r['Nội dung']}")
                     
-                    # Tính toán và hiển thị Bầu chọn
                     opts = [o.strip() for o in str(r['Lựa chọn']).split(",")] if r['Lựa chọn'] else []
                     votes = {}
                     try: votes = json.loads(str(r['Bình chọn']))
@@ -292,20 +294,26 @@ else:
                     
                     if my_vote:
                         st.success(f"Bạn đã chọn: **{my_vote}**")
-                        # Hiển thị thanh tiến trình kết quả
+                        
+                        # Hiện thanh biểu đồ kết quả
                         total_votes = len(votes) if len(votes) > 0 else 1
                         for o in opts:
                             count = sum(1 for v in votes.values() if v == o)
                             pct = int((count / total_votes) * 100)
                             st.markdown(f"<div style='font-size:13px;'>{o} ({count} phiếu)</div>", unsafe_allow_html=True)
                             st.progress(pct)
+                            
+                        # Nút Đổi / Xóa Vote của người dùng
+                        if st.button("🔄 Đổi ý / Xóa bình chọn", key=f"revote_{r['ID']}"):
+                            del votes[st.session_state['ho_ten']]
+                            sheet_thongbao.update_cell(row_num, 7, json.dumps(votes, ensure_ascii=False))
+                            load_data.clear(); st.rerun()
                     else:
-                        # Form cho phép người dùng vote
+                        # Giao diện cho phép chọn vote
                         with st.form(f"vote_form_{r['ID']}"):
                             choice = st.radio("Chọn ý kiến của bạn:", opts)
                             if st.form_submit_button("Chốt Bình chọn"):
                                 votes[st.session_state['ho_ten']] = choice
-                                row_num = int(idx) + 2
                                 sheet_thongbao.update_cell(row_num, 7, json.dumps(votes, ensure_ascii=False))
                                 load_data.clear(); st.rerun()
                                 
@@ -336,7 +344,6 @@ else:
                 load_data.clear()
                 st.rerun()
 
-
     # ---------------- SIDEBAR: HỒ SƠ & TRẠNG THÁI NHANH ----------------
     with st.sidebar:
         my_avatar_url = ""
@@ -360,18 +367,7 @@ else:
         """, unsafe_allow_html=True)
         st.markdown("---")
         
-        # HIỂN THỊ NÚT BẢNG TIN VÀ CHAT TRÊN SIDEBAR
-        col_btn1, col_btn2 = st.columns(2)
-        with col_btn1:
-            if st.button("❗ Bảng tin", use_container_width=True): show_notice_board()
-        with col_btn2:
-            if my_role <= 2:
-                if st.button("💬 Chat", use_container_width=True): show_chat_popup()
-            else:
-                st.button("🚫 Chat", use_container_width=True, disabled=True, help="Khách không có quyền chat")
-        
-        st.markdown("---")
-        
+        # Tiện ích Mượn/Trả đã được chuyển ra ngoài
         def update_status(new_status):
             cell = sheet_taikhoan.find(str(st.session_state['tai_khoan']))
             col_idx = df_tk.columns.get_loc("TrangThai") + 1
@@ -406,20 +402,108 @@ else:
             if st.button("🆘 NÚT KHẨN CẤP", use_container_width=True, type="primary"): update_status("CẦN TRỢ GIÚP")
             
         st.markdown("---")
+        
+        # Tabs mini cho Sidebar để Mượn / Trả thiết bị nhanh
+        st.markdown("### 🛠️ THAO TÁC NHANH")
+        tab_dk, tab_ls, tab_tra = st.tabs(["📅 Mượn", "🕒 Lịch", "🔄 Trả"])
+        
+        def format_device_option(dev_name):
+            if df_tb.empty or dev_name not in df_tb['Tên'].values: return dev_name
+            row = df_tb[df_tb['Tên'] == dev_name].iloc[0]
+            status, user = row.get('Trạng thái', 'Sẵn sàng'), row.get('Người sử dụng', '')
+            if status == 'Sẵn sàng': return f"🟢 {dev_name}"
+            else: return f"🔴 {dev_name} ({user.split()[-1] if user else ''})"
+            
+        with tab_dk:
+            view_mode = st.selectbox("Chọn thiết bị:", all_devices if all_devices else ["Chưa có dữ liệu"], format_func=format_device_option if all_devices else lambda x: x)
+            with st.form("smart_booking"):
+                d_pick = st.date_input("🗓️ Ngày")
+                now_minute = get_now().minute
+                default_idx = get_now().hour * 4 + ((now_minute // 15) * 15 // 15)
+                t_start_str = st.selectbox("⏳ Từ lúc:", time_options, index=default_idx)
+                t_end_str = st.selectbox("⏳ Đến lúc:", time_options, index=min(default_idx + 4, 95)) 
+                note = st.text_input("Ghi chú")
+                if st.form_submit_button("Xác nhận", use_container_width=True):
+                    t_start, t_end = parse_time(t_start_str), parse_time(t_end_str)
+                    d_str, today_str, current_t = d_pick.strftime("%d/%m/%Y"), get_now().strftime("%d/%m/%Y"), get_now().time()
+                    if t_end <= t_start: st.error("Lỗi: Giờ kết thúc < giờ bắt đầu!"); st.stop()
+                    if d_str == today_str and t_end <= current_t: st.error("Lỗi: Đã qua giờ này!"); st.stop()
+                    
+                    df_lich_rt = pd.DataFrame(sheet_lichtuan.get_all_records())
+                    conflict_found = []
+                    if not df_lich_rt.empty:
+                        df_day_device = df_lich_rt[(df_lich_rt['Ngày'] == d_str) & (df_lich_rt['Thiết bị'] == view_mode)]
+                        for _, row in df_day_device.iterrows():
+                            try:
+                                exist_start, exist_end = parse_time(row['Ca làm việc'].split(" - ")[0]), parse_time(row['Ca làm việc'].split(" - ")[1])
+                                if t_start < exist_end and exist_start < t_end and row['Người sử dụng'] != st.session_state['ho_ten']:
+                                    conflict_found.append(f"{row['Ca làm việc']} ({row['Người sử dụng'].split()[-1]})")
+                            except: pass
+
+                    if conflict_found: st.error("Kẹt lịch:\n" + "\n".join([f"- {c}" for c in conflict_found]))
+                    else:
+                        ca_lam_viec_str = f"{t_start_str} - {t_end_str}"
+                        sheet_lichtuan.append_row([d_str, ca_lam_viec_str, st.session_state['ho_ten'], view_mode, note])
+                        if (d_str == today_str) and (t_start <= current_t <= t_end):
+                            cell = sheet_thietbi.find(view_mode)
+                            sheet_thietbi.update_cell(cell.row, 3, "Đang mượn")
+                            sheet_thietbi.update_cell(cell.row, 4, st.session_state['ho_ten'])
+                            sheet_lichsu.append_row([get_now().strftime("%d/%m/%Y %H:%M:%S"), st.session_state['ho_ten'], f"Sử dụng ({ca_lam_viec_str})", view_mode, note])
+                        else:
+                            sheet_lichsu.append_row([get_now().strftime("%d/%m/%Y %H:%M:%S"), st.session_state['ho_ten'], f"Đặt lịch ({ca_lam_viec_str})", view_mode, note])
+                        load_data.clear(); st.rerun()
+
+        with tab_ls:
+            if not df_h.empty and len(df_h.columns) >= 4: 
+                col_time, col_action, col_dev = df_h.columns[0], df_h.columns[2], df_h.columns[3]
+                mini_df = df_h.iloc[::-1][[col_time, col_action, col_dev]].head(15)
+                st.dataframe(mini_df, use_container_width=True, hide_index=True)
+
+        with tab_tra:
+            if "Người sử dụng" in df_tb.columns:
+                my_list = df_tb[df_tb["Người sử dụng"] == st.session_state['ho_ten']]['Tên'].tolist()
+                if not my_list: st.success("Không mượn máy nào.")
+                else:
+                    with st.form("return_form"):
+                        dev_ret = st.selectbox("Chọn thiết bị:", my_list)
+                        return_note = st.text_input("Ghi chú trả máy")
+                        if st.form_submit_button("Xác nhận Trả", use_container_width=True):
+                            cell = sheet_thietbi.find(dev_ret)
+                            sheet_thietbi.update_cell(cell.row, 3, "Sẵn sàng")
+                            sheet_thietbi.update_cell(cell.row, 4, "")
+                            note_col_index = df_tb.columns.get_loc("Ghi chú") + 1 if "Ghi chú" in df_tb.columns else 5 
+                            sheet_thietbi.update_cell(cell.row, note_col_index, return_note)
+                            
+                            today_str, curr_t, curr_str = get_now().strftime("%d/%m/%Y"), get_now().time(), get_now().strftime("%H:%M")
+                            records = sheet_lichtuan.get_all_records()
+                            row_to_update, new_ca = None, ""
+                            for i, r in enumerate(records):
+                                if str(r['Thiết bị']) == dev_ret and str(r['Người sử dụng']) == st.session_state['ho_ten'] and str(r['Ngày']) == today_str:
+                                    ca = str(r['Ca làm việc'])
+                                    if " - " in ca:
+                                        s_t, e_t = parse_time(ca.split(" - ")[0]), parse_time(ca.split(" - ")[1])
+                                        if s_t and e_t and s_t <= curr_t <= e_t:
+                                            row_to_update, new_ca = i + 2, f"{ca.split(' - ')[0]} - {curr_str}"
+                                            break
+                            if row_to_update: sheet_lichtuan.update_cell(row_to_update, 2, new_ca) 
+                            
+                            sheet_lichsu.append_row([get_now().strftime("%d/%m/%Y %H:%M:%S"), st.session_state['ho_ten'], "Trả sớm", dev_ret, return_note])
+                            load_data.clear(); st.rerun()
+
+        st.markdown("---")
         if st.button("🚪 Đăng xuất", use_container_width=True):
             st.session_state['logged_in'] = False; st.rerun()
 
 
     # ---------------- NỘI DUNG CHÍNH (MAIN UI) ----------------
-    # KÍCH HOẠT ROBOT ĐỒNG BỘ TRẠNG THÁI TỦ SẤY VÀ MÁY MÓC
     auto_update_devices()
     
-    st.markdown("<h1 style='text-align: center;'>🔬 Lab 109</h1>", unsafe_allow_html=True)
+    st.markdown("<h1 style='text-align: center; margin-bottom: 0px;'>🔬 Lab 109</h1>", unsafe_allow_html=True)
     st.markdown("""
-        <p style='text-align: center; color: #666; font-size: 1.1em;'>
-            Mỗi ngày đến Lab là một ngày vui. 🇻🇳
+        <p style='text-align: center; color: #666; font-size: 1.1em; margin-top: 5px;'>
+            Mỗi ngày lên lab là một ngày vui 🇻🇳
             <br>
-            Cùng nhau nỗ lực, gặt hái thành công.
+            Sẽ vui hơn nếu chúng ta làm việc chăm chỉ
         </p>
     """, unsafe_allow_html=True)
 
@@ -445,10 +529,8 @@ else:
                     if b_date >= today:
                         valid_bookings.append(r)
                         ca = str(r['Ca làm việc'])
-                        
                         is_my_booking = (mem_name == st.session_state['ho_ten'])
                         is_admin = (my_role == 1)
-                        
                         if " - " in ca and (is_my_booking or is_admin):
                             s_str = ca.split(" - ")[0]
                             start_dt = datetime.combine(b_date, parse_time(s_str), tzinfo=VN_TZ)
@@ -476,21 +558,11 @@ else:
                         
                         records = sheet_lichtuan.get_all_records()
                         row_to_delete = next((i + 2 for i, r in enumerate(records) if str(r['Ngày']) == day and str(r['Thiết bị']) == dev and str(r['Ca làm việc']) == ca and str(r['Người sử dụng']) == user_to_cancel), None)
-                        
                         if row_to_delete:
                             sheet_lichtuan.delete_rows(row_to_delete)
                             action_log = f"Hủy lịch của {user_to_cancel} ({ca})" if my_role == 1 and not is_my_booking else f"Hủy lịch ({ca})"
                             sheet_lichsu.append_row([get_now().strftime("%d/%m/%Y %H:%M:%S"), st.session_state['ho_ten'], action_log, dev, "Hủy qua hệ thống"])
                             load_data.clear(); st.rerun()
-
-    def format_device_option(dev_name):
-        if df_tb.empty or dev_name not in df_tb['Tên'].values: return dev_name
-        row = df_tb[df_tb['Tên'] == dev_name].iloc[0]
-        status, user = row.get('Trạng thái', 'Sẵn sàng'), row.get('Người sử dụng', '')
-        note_col = "Ghi chú" if "Ghi chú" in df_tb.columns else None
-        note = f" | 📝 {row.get(note_col, '')}" if note_col and row.get(note_col, '') else ""
-        if status == 'Sẵn sàng': return f"🟢 {dev_name} (Rảnh){note}"
-        else: return f"🔴 {dev_name} (Bận: {user.split()[-1] if user else ''}){note}"
 
     # ================= ĐIỀU HƯỚNG TABS ĐỘNG THEO PHÂN QUYỀN =================
     if my_role <= 2:
@@ -509,6 +581,28 @@ else:
     # --- TAB 1: TỔNG QUAN LAB ---
     if tab_tong_quan is not None:
         with tab_tong_quan:
+            # 🚀 BLOCK TIỆN ÍCH NỔI BẬT DÀNH CHO TRANG CHỦ
+            st.markdown("### 📌 Tiện ích nhanh")
+            col_b1, col_b2 = st.columns(2)
+            with col_b1:
+                st.markdown("""
+                    <div style='background: linear-gradient(135deg, #a18cd1 0%, #fbc2eb 100%); padding: 15px; border-radius: 15px; text-align: center; box-shadow: 0 4px 6px rgba(0,0,0,0.1); display: flex; flex-direction: column; justify-content: center; margin-bottom: 10px;'>
+                        <h3 style='margin: 0; color: white; text-shadow: 1px 1px 2px rgba(0,0,0,0.2);'>📢 BẢNG TIN & VOTE</h3>
+                    </div>
+                """, unsafe_allow_html=True)
+                if st.button("Mở Bảng tin", key="btn_notice_main", use_container_width=True): show_notice_board()
+                
+            with col_b2:
+                st.markdown("""
+                    <div style='background: linear-gradient(135deg, #84fab0 0%, #8fd3f4 100%); padding: 15px; border-radius: 15px; text-align: center; box-shadow: 0 4px 6px rgba(0,0,0,0.1); display: flex; flex-direction: column; justify-content: center; margin-bottom: 10px;'>
+                        <h3 style='margin: 0; color: white; text-shadow: 1px 1px 2px rgba(0,0,0,0.2);'>💬 CHAT TẬP THỂ</h3>
+                    </div>
+                """, unsafe_allow_html=True)
+                if st.button("Mở Khung Chat", key="btn_chat_main", use_container_width=True): show_chat_popup()
+                
+            st.markdown("---")
+
+            # KHÔNG GIAN THÀNH VIÊN
             st.markdown("### 🌐 Không gian làm việc")
             st.write("Nhấn vào thẻ thành viên để xem lịch trình cá nhân hoặc Hủy lịch nếu bạn có quyền.")
             
@@ -558,9 +652,18 @@ else:
         sub1, sub2, sub3 = st.tabs(["📝 Đăng ký mượn", "🔄 Trả thiết bị", "🕒 Lịch sử mượn"])
         
         with sub1:
+            def format_device_option_main(dev_name):
+                if df_tb.empty or dev_name not in df_tb['Tên'].values: return dev_name
+                row = df_tb[df_tb['Tên'] == dev_name].iloc[0]
+                status, user = row.get('Trạng thái', 'Sẵn sàng'), row.get('Người sử dụng', '')
+                note_col = "Ghi chú" if "Ghi chú" in df_tb.columns else None
+                note = f" | 📝 {row.get(note_col, '')}" if note_col and row.get(note_col, '') else ""
+                if status == 'Sẵn sàng': return f"🟢 {dev_name} (Rảnh){note}"
+                else: return f"🔴 {dev_name} (Bận: {user.split()[-1] if user else ''}){note}"
+
             c_filter, _ = st.columns([1, 1])
             with c_filter:
-                view_mode = st.selectbox("Chọn thiết bị:", all_devices if all_devices else ["Chưa có dữ liệu"], format_func=format_device_option if all_devices else lambda x: x)
+                view_mode = st.selectbox("Chọn thiết bị:", all_devices if all_devices else ["Chưa có dữ liệu"], format_func=format_device_option_main if all_devices else lambda x: x)
             
             with st.expander(f"Biểu đồ Timeline: {view_mode}", expanded=True):
                 df_dev = df_lich_view[df_lich_view['Thiết bị'] == view_mode] if not df_lich_view.empty else pd.DataFrame()
@@ -600,7 +703,7 @@ else:
                 html_timeline += "</div>"
                 st.markdown(html_timeline, unsafe_allow_html=True)
                 
-            with st.form("smart_booking_main"):
+            with st.form("smart_booking_tab_main"):
                 c1, c2, c3, c4 = st.columns([1.5, 1, 1, 2])
                 with c1: d_pick = st.date_input("🗓️ Chọn ngày", min_value=today)
                 with c2: 
@@ -651,7 +754,7 @@ else:
                 my_list = df_tb[df_tb["Người sử dụng"] == st.session_state['ho_ten']]['Tên'].tolist()
                 if not my_list: st.info("Bạn hiện không mượn thiết bị nào.")
                 else:
-                    with st.form("return_form_main"):
+                    with st.form("return_form_tab_main"):
                         dev_ret = st.selectbox("Chọn thiết bị để trả:", my_list)
                         return_note = st.text_input("📝 Ghi chú (nếu máy có vấn đề):")
                         if st.form_submit_button("Xác nhận Trả máy", type="primary"):
