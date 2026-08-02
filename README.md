@@ -1,4 +1,4 @@
-<img width="1280" height="960" alt="bang_hoa_12" src="https://github.com/user-attachments/assets/6bbb9ffc-2cf3-4b8d-99d7-1c7ed4590014" /># 🔬 Hệ thống Quản lý Thiết bị Lab 109 (Lab Equipment Management System)
+# 🔬 Hệ thống Quản lý Thiết bị Lab 109 (Lab Equipment Management System)
 
 [![Python](https://img.shields.io/badge/Python-3.9+-blue.svg)](https://www.python.org/)
 [![Streamlit](https://img.shields.io/badge/Streamlit-1.20+-red.svg)](https://streamlit.io/)
