@@ -22,15 +22,7 @@
 * **Frontend & Tương tác UI:** Streamlit
 * **Xử lý Logic & Backend:** Python
 * **Xử lý dữ liệu:** Pandas
-* **Cơ sở dữ liệu:** [Ghi rõ công nghệ bạn đang dùng, ví dụ: Firebase Firestore / Google Sheets API]
+* **Cơ sở dữ liệu:** [Google Sheets API]
 
 ---
 
-## 💻 Hướng dẫn Cài đặt & Chạy cục bộ (Local Installation)
-
-Để chạy thử ứng dụng này trên máy tính cá nhân của bạn, hãy làm theo các bước sau:
-
-**1. Clone kho lưu trữ về máy:**
-```bash
-git clone [https://github.com/lmhunh/app-lab.git](https://github.com/lmhunh/app-lab.git)
-cd app-lab
