@@ -1,4 +1,4 @@
-# 🔬 Hệ thống Quản lý Thiết bị Lab 109 (Lab Equipment Management System)
+<img width="1280" height="960" alt="bang_hoa_12" src="https://github.com/user-attachments/assets/6bbb9ffc-2cf3-4b8d-99d7-1c7ed4590014" /># 🔬 Hệ thống Quản lý Thiết bị Lab 109 (Lab Equipment Management System)
 
 [![Python](https://img.shields.io/badge/Python-3.9+-blue.svg)](https://www.python.org/)
 [![Streamlit](https://img.shields.io/badge/Streamlit-1.20+-red.svg)](https://streamlit.io/)
@@ -25,4 +25,10 @@
 * **Cơ sở dữ liệu:** [Google Sheets API]
 
 ---
+## 📸 Hình ảnh Giao diện (Screenshots)
+<img width="1366" height="768" alt="Screenshot 2026-08-02 175619" src="https://github.com/user-attachments/assets/ed96da3b-c34c-4977-9d0a-f909a51d3cce" />
+<img width="1366" height="768" alt="Screenshot 2026-08-02 175917" src="https://github.com/user-attachments/assets/cadffbca-20b8-467a-9d18-683f84e62680" />
+<img width="1366" height="768" alt="Screenshot 2026-08-02 175849" src="https://github.com/user-attachments/assets/2dd6ce04-5413-4c2a-9a9b-5ddab4e9be91" />
+
+Chúc bạn may mắn.
 
